@@ -401,6 +401,9 @@ void CQdoasConfigWriter::writePropertiesInstrumental(FILE *fp, const mediate_pro
   case PRJCT_INSTR_FORMAT_CCD_EEV:
     fprintf(fp, "\"ccdeev\"");
     break;
+  case PRJCT_INSTR_FORMAT_GDP_ASCII:
+    fprintf(fp, "\"gdpascii\"");
+    break;
   case PRJCT_INSTR_FORMAT_GDP_BIN:
     fprintf(fp, "\"gdpbin\"");
     break;
@@ -415,9 +418,6 @@ void CQdoasConfigWriter::writePropertiesInstrumental(FILE *fp, const mediate_pro
     break;
   case PRJCT_INSTR_FORMAT_OMI:
     fprintf(fp, "\"omi\"");
-    break;
-  case PRJCT_INSTR_FORMAT_OMPS:
-    fprintf(fp, "\"omps\"");
     break;
   case PRJCT_INSTR_FORMAT_TROPOMI:
     fprintf(fp, "\"tropomi\"");
@@ -439,12 +439,6 @@ void CQdoasConfigWriter::writePropertiesInstrumental(FILE *fp, const mediate_pro
     break;
   case PRJCT_INSTR_FORMAT_OCEAN_OPTICS:
     fprintf(fp, "\"oceanoptics\"");
-    break;
-  case PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF:
-    fprintf(fp, "\"frm4doas\"");
-    break;
-  case PRJCT_INSTR_FORMAT_GOME1_NETCDF:
-    fprintf(fp, "\"gdpnetcdf\"");
     break;
   default:
     fprintf(fp, "\"invalid\"");
@@ -735,8 +729,8 @@ void CQdoasConfigWriter::writePropertiesInstrumental(FILE *fp, const mediate_pro
   fprintf(fp," />\n");
 
   // gdpascii
-  fprintf(fp, "      <gdpnetcdf type=");
-  switch (d->gdpnetcdf.bandType) {
+  fprintf(fp, "      <gdpascii type=");
+  switch (d->gdpascii.bandType) {
   case PRJCT_INSTR_GDP_BAND_1A:
     fprintf(fp, "\"1a\"");
     break;
@@ -760,7 +754,7 @@ void CQdoasConfigWriter::writePropertiesInstrumental(FILE *fp, const mediate_pro
   }
 
   fprintf(fp," pixel=");
-  switch(d->gdpnetcdf.pixelType)
+  switch(d->gdpascii.pixelType)
    {
    	case PRJCT_INSTR_GDP_PIXEL_ALL :
    	 fprintf(fp,"\"all\"");
@@ -787,10 +781,10 @@ void CQdoasConfigWriter::writePropertiesInstrumental(FILE *fp, const mediate_pro
    	break;
    };
 
-  tmpStr = pathMgr->simplifyPath(QString(d->gdpnetcdf.calibrationFile));
+  tmpStr = pathMgr->simplifyPath(QString(d->gdpascii.calibrationFile));
   fprintf(fp, " calib=\"%s\"", tmpStr.toUtf8().constData());
 
-  tmpStr = pathMgr->simplifyPath(QString(d->gdpnetcdf.transmissionFunctionFile));
+  tmpStr = pathMgr->simplifyPath(QString(d->gdpascii.transmissionFunctionFile));
   fprintf(fp, " instr=\"%s\" />\n", tmpStr.toUtf8().constData());
 
   // gdpbin
@@ -967,14 +961,13 @@ void CQdoasConfigWriter::writePropertiesInstrumental(FILE *fp, const mediate_pro
 #undef EXPAND
       }
   fprintf(fp, "      <tropomi band=\"%s\"", tropomiSpectralBand);
-  fprintf(fp, " reference_orbit_dir=\"%s\"", pathMgr->simplifyPath(QString(d->tropomi.reference_orbit_dir)).toUtf8().constData());
-  fprintf(fp," trackSelection=\"%s\"",d->tropomi.trackSelection);
 
   tmpStr = pathMgr->simplifyPath(QString(d->tropomi.calibrationFile));
   fprintf(fp, " calib=\"%s\"", tmpStr.toUtf8().constData());
 
   tmpStr = pathMgr->simplifyPath(QString(d->tropomi.instrFunctionFile));
   fprintf(fp, " instr=\"%s\" />\n", tmpStr.toUtf8().constData());
+
 
   // gome2
   fprintf(fp, "      <gome2 type=");
@@ -1041,37 +1034,6 @@ void CQdoasConfigWriter::writePropertiesInstrumental(FILE *fp, const mediate_pro
   fprintf(fp, " calib=\"%s\"", tmpStr.toUtf8().constData());
 
   tmpStr = pathMgr->simplifyPath(QString(d->oceanoptics.transmissionFunctionFile));
-  fprintf(fp, " instr=\"%s\" />\n", tmpStr.toUtf8().constData());
-
-  // frm4doas
-
-  fprintf(fp, "      <frm4doas size=\"%d\" straylight=\"%s\" lambda_min=\"%g\" lambda_max=\"%g\"",d->frm4doas.detectorSize,
-  (d->frm4doas.straylight ? sTrue : sFalse),d->frm4doas.lambdaMin,d->frm4doas.lambdaMax);
-  tmpStr = pathMgr->simplifyPath(QString(d->frm4doas.calibrationFile));
-
-  fprintf(fp, " type=");
-  switch (d->frm4doas.spectralType) {
-  case PRJCT_INSTR_MAXDOAS_TYPE_NONE:
-    fprintf(fp, "\"all\"");
-    break;
-  case PRJCT_INSTR_MAXDOAS_TYPE_ZENITH:
-    fprintf(fp, "\"zenith\"");
-    break;    
-  case PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS:
-    fprintf(fp, "\"off-axis\"");
-    break;
-  case PRJCT_INSTR_MAXDOAS_TYPE_DIRECTSUN:
-    fprintf(fp, "\"direct-sun\"");
-    break;
-  case PRJCT_INSTR_MAXDOAS_TYPE_ALMUCANTAR:
-    fprintf(fp, "\"almucantar\"");
-    break;
-  default:
-    fprintf(fp, "\"invalid\"");
-  }
-    
-  fprintf(fp, " calib=\"%s\"", tmpStr.toUtf8().constData());
-  tmpStr = pathMgr->simplifyPath(QString(d->frm4doas.transmissionFunctionFile));
   fprintf(fp, " instr=\"%s\" />\n", tmpStr.toUtf8().constData());
 
   fprintf(fp, "    </instrumental>\n");
@@ -1276,15 +1238,21 @@ void CQdoasConfigWriter::writeAnalysisWindows(FILE *fp, const QString &projectNa
 	 	break;
 	 }
 
-        fprintf(fp,"minlon=\"%.3f\" maxlon=\"%.3f\" minlat=\"%.3f\" maxlat=\"%.3f\" refns=\"%d\" cloudfmin=\"%.3f\" cloudfmax=\"%.3f\" \n",
+
+
+
+
+
+ fprintf(fp,"minlon=\"%.3f\" maxlon=\"%.3f\" minlat=\"%.3f\" maxlat=\"%.3f\" refns=\"%d\" cloudfmin=\"%.3f\" cloudfmax=\"%.3f\" \n",
                 properties->refMinLongitude, properties->refMaxLongitude,
                 properties->refMinLatitude, properties->refMaxLatitude, properties->refNs,
                 properties->cloudFractionMin,properties->cloudFractionMax);
 
-        fprintf(fp,"              maxdoasrefmode=\"%s\" \n",
-                (properties->refMaxdoasSelection==ANLYS_MAXDOAS_REF_SCAN)?"scan":"sza");
-        // for backwards compatibility, we still write the GOME pixeltype selection configuration, defaulting to "true" for all types.
-        fprintf(fp, "             east=\"true\" center=\"true\" west=\"true\" backscan=\"true\" />\n");
+	fprintf(fp,"              maxdoasrefmode=\"%s\" \n",
+	           (properties->refMaxdoasSelection==ANLYS_MAXDOAS_REF_SCAN)?"scan":"sza");
+	fprintf(fp, "             east=\"%s\" center=\"%s\" west=\"%s\" backscan=\"%s\" />\n",
+		(properties->pixelTypeEast ? sTrue : sFalse), (properties->pixelTypeCenter ? sTrue : sFalse),
+		(properties->pixelTypeWest ? sTrue : sFalse), (properties->pixelTypeBackscan ? sTrue : sFalse));
 
 	// cross sections ....
 	writeCrossSectionList(fp, &(properties->crossSectionList));
@@ -1586,8 +1554,6 @@ void CQdoasConfigWriter::writeDataSelectList(FILE *fp, const data_select_list_t 
     case PRJCT_RESULTS_PIXEL:            config_string = "pixel"; break;
     case PRJCT_RESULTS_PIXEL_TYPE:       config_string = "pixel_type"; break;
     case PRJCT_RESULTS_ORBIT:            config_string = "orbit"; break;
-    case PRJCT_RESULTS_LON_CORNERS: config_string = "corner_longitudes"; break;
-    case PRJCT_RESULTS_LAT_CORNERS: config_string = "corner_latitudes"; break;
     case PRJCT_RESULTS_LONGIT:           config_string = "longit"; break;
     case PRJCT_RESULTS_LATIT:            config_string = "latit"; break;
     case PRJCT_RESULTS_ALTIT:            config_string = "altit"; break;
@@ -1673,11 +1639,8 @@ void CQdoasConfigWriter::writeDataSelectList(FILE *fp, const data_select_list_t 
     case PRJCT_RESULTS_LAMBDA : config_string = "lambda"; break;
     case PRJCT_RESULTS_SPECTRA : config_string = "spectra"; break;
     case PRJCT_RESULTS_FILENAME : config_string = "filename"; break;
-    case PRJCT_RESULTS_SCANINDEX : config_string = "scan_index"; break;
-    case PRJCT_RESULTS_ZENITH_BEFORE : config_string = "zenith_before_index"; break;
-    case PRJCT_RESULTS_ZENITH_AFTER : config_string = "zenith_after_index"; break;
-    case PRJCT_RESULTS_PRECALCULATED_FLUXES : config_string = "precalculated_fluxes"; break;
-    case PRJCT_RESULTS_RC : config_string = "rc"; break;
+
+    case PRJCT_RESULTS_PRECALCULATED_FLUXES:            config_string = "precalculated_fluxes"; break;
 
     default: puts("ERROR: no configuration string defined for output field. This is a bug, please contact Qdoas developers.");
     }

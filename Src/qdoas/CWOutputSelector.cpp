@@ -29,7 +29,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "debugutil.h"
 
-static void getValidFieldFlags(int *validFlags, int instrument,int selectorOrigin);
+static void getValidFieldFlags(int *validFlags, int instrument,bool exportFlag);
 
 CWOutputSelector::CWOutputSelector(const data_select_list_t *d, QWidget *parent) :
   QFrame(parent)
@@ -89,8 +89,6 @@ CWOutputSelector::CWOutputSelector(const data_select_list_t *d, QWidget *parent)
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_ORBIT,                  "Orbit number"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_LONGIT,                 "Longitude"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_LATIT,                  "Latitude"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_LON_CORNERS,            "Pixel corner longitudes"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_LAT_CORNERS,            "Pixel corner latitudes"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_ALTIT,                  "Altitude"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_COVAR,                  "Covariances"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_CORR,                   "Correlations"));
@@ -113,8 +111,8 @@ CWOutputSelector::CWOutputSelector(const data_select_list_t *d, QWidget *parent)
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_SCIA_QUALITY,           "SCIAMACHY Quality Flag"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_SCIA_STATE_INDEX,       "SCIAMACHY State Index"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_SCIA_STATE_ID,          "SCIAMACHY State Id"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_STARTDATE,              "Start Date"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_ENDDATE,                "End Date"));
+  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_STARTDATE,              "Start Date (DDMMYYYY)"));
+  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_ENDDATE,                "End Date (DDMMYYYY)"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_STARTTIME,              "Start Time (hhmmss)"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_ENDTIME,                "Stop Time (hhmmss)"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_SCANNING,               "Scanning angle"));
@@ -152,8 +150,8 @@ CWOutputSelector::CWOutputSelector(const data_select_list_t *d, QWidget *parent)
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_SPIKES,                 "Pixels with spikes in residual"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_UAV_SERVO_BYTE_SENT,    "Servo position byte sent"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_UAV_SERVO_BYTE_RECEIVED,"Servo position byte received"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_UAV_INSIDE_TEMP,        "Inside Temperature (ï¿½C)"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_UAV_OUTSIDE_TEMP,       "Outside Temperature (ï¿½C)"));
+  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_UAV_INSIDE_TEMP,        "Inside Temperature (°C)"));
+  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_UAV_OUTSIDE_TEMP,       "Outside Temperature (°C)"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_UAV_PRESSURE,           "Pressure (hPa)"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_UAV_HUMIDITY,           "Humidity"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_UAV_DEWPOINT,           "Dewpoint"));
@@ -165,19 +163,13 @@ CWOutputSelector::CWOutputSelector(const data_select_list_t *d, QWidget *parent)
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_LONGITEND,              "Longitude End"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_LATITEND,               "Latitude End"));
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_ALTITEND,               "Altitude End"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_TOTALEXPTIME,           "Total Measurement Time"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_TOTALACQTIME,           "Total Acquisition Time"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_LAMBDA,                 "Lambda"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_SPECTRA,                "Spectra"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_FILENAME,               "File name"));
-
-  // if (selectorOrigin==TAB_SELECTOR_OUTPUT)
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_SCANINDEX,              "Scan index"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_ZENITH_BEFORE,          "Zenith before index"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_ZENITH_AFTER,           "Zenith after index"));
+  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_TOTALEXPTIME,               "Total Measurement Time"));
+  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_TOTALACQTIME,               "Total Acquisition Time"));
+  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_LAMBDA,               "Lambda"));
+  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_SPECTRA,               "Spectra"));
+  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_FILENAME,              "File name"));
 
   m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_PRECALCULATED_FLUXES,   "Precalculated fluxes"));
-  m_availableList->addItem(new CWOutputFieldItem(PRJCT_RESULTS_RC,                     "Return code"));
 
   // populate the selected list by key-reference to the available list ...
 
@@ -205,8 +197,8 @@ void CWOutputSelector::apply(data_select_list_t *d)
   int row = 0;
   while (row < m_chosenList->count()) {
     QListWidgetItem *item = m_chosenList->item(row);
-     if (item && !item->isHidden() ) {
-      d->selected[n] = item->data(Qt::UserRole).toInt();
+    if (item && !item->isHidden()) {
+      d->selected[n] = (unsigned char)(item->data(Qt::UserRole).toInt());
       ++n;
     }
     ++row;
@@ -214,12 +206,12 @@ void CWOutputSelector::apply(data_select_list_t *d)
   d->nSelected = n;
 }
 
-void CWOutputSelector::setInstrument(int instrument,int selectorOrigin)
+void CWOutputSelector::setInstrument(int instrument,bool exportFlag)
 {
   int validFlags[PRJCT_RESULTS_MAX];
 
   // get this information from somewhere ...
-  getValidFieldFlags(validFlags, instrument,selectorOrigin);
+  getValidFieldFlags(validFlags, instrument,exportFlag);
 
   for (int key=0; key<PRJCT_RESULTS_MAX; ++key) {
     bool hideItems = (validFlags[key] == 0);
@@ -301,11 +293,9 @@ QVariant CWOutputFieldItem::data(int role) const
 
 //------------------------------------------------------
 
-void getValidFieldFlags(int *validFlags, int instrument,int selectorOrigin)
+void getValidFieldFlags(int *validFlags, int instrument,bool exportFlag)
  {
-   int format=(int)static_cast<enum _prjctInstrFormat>(instrument);
    int satelliteFlag = is_satellite(static_cast<enum _prjctInstrFormat>(instrument));
-   int maxdoasFlag = is_maxdoas(static_cast<enum _prjctInstrFormat>(instrument));
 
   // validFlags is indexed by the PRJCT_RESULTS_* enumerated values. A non-zero
   // value means that the corresponding field is valid for the instrument. The value of
@@ -329,13 +319,12 @@ void getValidFieldFlags(int *validFlags, int instrument,int selectorOrigin)
   validFlags[PRJCT_RESULTS_AZIM]=                                         // solar azimuth angle (can be calculated if date, time and observation site specified)
   validFlags[PRJCT_RESULTS_TINT]=1;                                       // the integration time
 
-  validFlags[PRJCT_RESULTS_COVAR]=(selectorOrigin!=TAB_SELECTOR_EXPORT)?1:0;
-  validFlags[PRJCT_RESULTS_CORR]=(selectorOrigin!=TAB_SELECTOR_EXPORT)?1:0;
-  validFlags[PRJCT_RESULTS_RC]=((selectorOrigin==TAB_SELECTOR_OUTPUT) && (instrument==PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF))?1:0;
+  validFlags[PRJCT_RESULTS_COVAR]=!exportFlag;
+  validFlags[PRJCT_RESULTS_CORR]=!exportFlag;
 
   // Output fields related to overall analysis (or run calibration) results (per analysis window)
 
-  if (selectorOrigin!=TAB_SELECTOR_EXPORT)
+  if (!exportFlag)
    {
      validFlags[PRJCT_RESULTS_REFZM]=(satelliteFlag)?0:1;                    // in automatic reference selection, the solar zenith angle of the reference spectrum
      validFlags[PRJCT_RESULTS_REFNUMBER]=(satelliteFlag)?0:1;                // in automatic reference selection, the index of the reference spectrum
@@ -365,7 +354,7 @@ void getValidFieldFlags(int *validFlags, int instrument,int selectorOrigin)
 
   validFlags[PRJCT_RESULTS_TOTALACQTIME]=
   validFlags[PRJCT_RESULTS_TOTALEXPTIME]=!satelliteFlag;
-  validFlags[PRJCT_RESULTS_MEASTYPE]=maxdoasFlag;
+
 
   // set the appropriate flags
 
@@ -389,10 +378,12 @@ void getValidFieldFlags(int *validFlags, int instrument,int selectorOrigin)
       validFlags[PRJCT_RESULTS_ALTIT]=1;
       validFlags[PRJCT_RESULTS_VIEW_ELEVATION]=1;
       validFlags[PRJCT_RESULTS_VIEW_AZIMUTH]=1;
+      validFlags[PRJCT_RESULTS_VIEW_ZENITH]=1;
       validFlags[PRJCT_RESULTS_STARTDATE]=1;
       validFlags[PRJCT_RESULTS_ENDDATE]=1;
       validFlags[PRJCT_RESULTS_STARTTIME]=1;
       validFlags[PRJCT_RESULTS_ENDTIME]=1;
+      validFlags[PRJCT_RESULTS_MEASTYPE]=1;
      }
     break;
  // ----------------------------------------------------------------------------
@@ -511,6 +502,7 @@ void getValidFieldFlags(int *validFlags, int instrument,int selectorOrigin)
       validFlags[PRJCT_RESULTS_VIEW_AZIMUTH]=1;                                 // not present in all measurements]=1; but could be in the next future
       validFlags[PRJCT_RESULTS_SCANNING]=1;
       validFlags[PRJCT_RESULTS_FILTERNUMBER]=1;
+      validFlags[PRJCT_RESULTS_MEASTYPE]=1;
       validFlags[PRJCT_RESULTS_CCD_HEADTEMPERATURE]=1;
       validFlags[PRJCT_RESULTS_STARTTIME]=1;
       validFlags[PRJCT_RESULTS_ENDTIME]=1;
@@ -575,33 +567,27 @@ void getValidFieldFlags(int *validFlags, int instrument,int selectorOrigin)
       validFlags[PRJCT_RESULTS_ENDTIME]=1;
       validFlags[PRJCT_RESULTS_TDET]=1;
 
-      if (instrument!=PRJCT_INSTR_FORMAT_MFC_BIRA)
+      if (instrument==PRJCT_INSTR_FORMAT_MFC_BIRA)
+       validFlags[PRJCT_RESULTS_MEASTYPE]=1;
+      else
        validFlags[PRJCT_RESULTS_FILENAME]=1;
-
+     }
+    break;
+ // ----------------------------------------------------------------------------
+    case PRJCT_INSTR_FORMAT_GDP_ASCII :
+     {
+      validFlags[PRJCT_RESULTS_PIXEL]=1;
+      validFlags[PRJCT_RESULTS_PIXEL_TYPE]=1;
      }
     break;
  // ----------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_GDP_BIN :
-    case PRJCT_INSTR_FORMAT_GOME1_NETCDF :
      {
       validFlags[PRJCT_RESULTS_PIXEL]=1;
       validFlags[PRJCT_RESULTS_PIXEL_TYPE]=1;
-      validFlags[PRJCT_RESULTS_LOS_ZA]=0;
-      validFlags[PRJCT_RESULTS_LOS_AZIMUTH]=0;
       validFlags[PRJCT_RESULTS_TINT]=0;
       validFlags[PRJCT_RESULTS_CLOUD]=1;
       validFlags[PRJCT_RESULTS_CLOUDTOPP]=1;
-      validFlags[PRJCT_RESULTS_LON_CORNERS]=1;
-      validFlags[PRJCT_RESULTS_LAT_CORNERS]=1;
-
-      if (instrument==PRJCT_INSTR_FORMAT_GOME1_NETCDF)
-       {
-        validFlags[PRJCT_RESULTS_INDEX_ALONGTRACK]=1;
-        validFlags[PRJCT_RESULTS_INDEX_CROSSTRACK]=1;
-        validFlags[PRJCT_RESULTS_SAT_SAA]=1;
-        validFlags[PRJCT_RESULTS_SAT_SZA]=1;
-        validFlags[PRJCT_RESULTS_SAT_VZA]=1;
-       }
      }
     break;
  // ----------------------------------------------------------------------------
@@ -610,10 +596,6 @@ void getValidFieldFlags(int *validFlags, int instrument,int selectorOrigin)
       validFlags[PRJCT_RESULTS_SCIA_STATE_INDEX]=1;
       validFlags[PRJCT_RESULTS_SCIA_STATE_ID]=1;
       validFlags[PRJCT_RESULTS_SCIA_QUALITY]=1;
-      validFlags[PRJCT_RESULTS_SAT_LAT]=1;
-      validFlags[PRJCT_RESULTS_SAT_LON]=1;
-      validFlags[PRJCT_RESULTS_LON_CORNERS]=1;
-      validFlags[PRJCT_RESULTS_LAT_CORNERS]=1;
      }
     break;
  // ----------------------------------------------------------------------------
@@ -630,8 +612,6 @@ void getValidFieldFlags(int *validFlags, int instrument,int selectorOrigin)
       validFlags[PRJCT_RESULTS_GOME2_SUNGLINT_RISK]=1;
       validFlags[PRJCT_RESULTS_GOME2_SUNGLINT_HIGHRISK]=1;
       validFlags[PRJCT_RESULTS_GOME2_RAINBOW]=1;
-      validFlags[PRJCT_RESULTS_LON_CORNERS]=1;
-      validFlags[PRJCT_RESULTS_LAT_CORNERS]=1;
       validFlags[PRJCT_RESULTS_SAT_LAT]=1;
       validFlags[PRJCT_RESULTS_SAT_LON]=1;
       validFlags[PRJCT_RESULTS_SAT_SAA]=1;
@@ -669,41 +649,13 @@ void getValidFieldFlags(int *validFlags, int instrument,int selectorOrigin)
       validFlags[PRJCT_RESULTS_OMI_XTRACK_QF]=1;
       validFlags[PRJCT_RESULTS_OMI_CONFIGURATION_ID]=1;
 
-      if (selectorOrigin!=TAB_SELECTOR_EXPORT)
+      if (!exportFlag)
        validFlags[PRJCT_RESULTS_OMI_PIXELS_QF]=1;
 
       validFlags[PRJCT_RESULTS_SAT_LAT]=1;
       validFlags[PRJCT_RESULTS_SAT_LON]=1;
      }
     break;
-
- // ----------------------------------------------------------------------------
-
-    case PRJCT_INSTR_FORMAT_OMPS :
-     {
-      validFlags[PRJCT_RESULTS_LONGIT]=1;
-      validFlags[PRJCT_RESULTS_LATIT]=1;
-      validFlags[PRJCT_RESULTS_VIEW_ZENITH]=1;
-      validFlags[PRJCT_RESULTS_VIEW_AZIMUTH]=1;
-      validFlags[PRJCT_RESULTS_LOS_ZA]=1;
-      validFlags[PRJCT_RESULTS_LOS_AZIMUTH]=1;
-      validFlags[PRJCT_RESULTS_INDEX_ALONGTRACK]=1;
-      validFlags[PRJCT_RESULTS_INDEX_CROSSTRACK]=1;
-     }
-    break;
-
- // ----------------------------------------------------------------------------
-
-   case PRJCT_INSTR_FORMAT_TROPOMI:
-     {
-       validFlags[PRJCT_RESULTS_INDEX_ALONGTRACK]=1;
-       validFlags[PRJCT_RESULTS_INDEX_CROSSTRACK]=1;
-       validFlags[PRJCT_RESULTS_LON_CORNERS]=1;
-       validFlags[PRJCT_RESULTS_LAT_CORNERS]=1;
-       validFlags[PRJCT_RESULTS_SAT_LAT]=1;
-       validFlags[PRJCT_RESULTS_SAT_LON]=1;
-     }
-
  // ----------------------------------------------------------------------------
    case PRJCT_INSTR_FORMAT_APEX :
      {
@@ -715,35 +667,12 @@ void getValidFieldFlags(int *validFlags, int instrument,int selectorOrigin)
        validFlags[PRJCT_RESULTS_VIEW_AZIMUTH]=1;
      }
      break;
-
- // ----------------------------------------------------------------------------
-
-   case PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF :
-     {
-      validFlags[PRJCT_RESULTS_VIEW_ELEVATION]=1;
-      validFlags[PRJCT_RESULTS_VIEW_AZIMUTH]=1;                                 // not present in all measurements]=1; but could be in the next future
-      validFlags[PRJCT_RESULTS_STARTDATE]=1;
-      validFlags[PRJCT_RESULTS_ENDDATE]=1;      
-      validFlags[PRJCT_RESULTS_STARTTIME]=1;
-      validFlags[PRJCT_RESULTS_ENDTIME]=1;
-      validFlags[PRJCT_RESULTS_LONGIT]=1;
-      validFlags[PRJCT_RESULTS_LATIT]=1;
-      validFlags[PRJCT_RESULTS_ALTIT]=1;
-      validFlags[PRJCT_RESULTS_SCANINDEX]=1;
-      validFlags[PRJCT_RESULTS_SCANS]=1;
-      validFlags[PRJCT_RESULTS_ZENITH_BEFORE]=1;
-      validFlags[PRJCT_RESULTS_ZENITH_AFTER]=1;
-     }
-     break;
-
- // ----------------------------------------------------------------------------
-
    default:
      break;
  // ----------------------------------------------------------------------------
    }
 
-  if (selectorOrigin==TAB_SELECTOR_EXPORT)
+  if (exportFlag)
    {
    	validFlags[PRJCT_RESULTS_LAMBDA]=1;
    	validFlags[PRJCT_RESULTS_SPECTRA]=1;

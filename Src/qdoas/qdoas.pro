@@ -9,7 +9,7 @@ include( ../config.pri )
 PRE_TARGETDEPS += ../common/libcommon.a ../engine/libengine.a ../mediator/libmediator.a
 
 CONFIG += qt thread $$CODE_GENERATION
-QT = core gui svg xml widgets printsupport
+QT = core gui xml widgets printsupport
 
 INCLUDEPATH  += ../mediator ../common ../engine
 
@@ -20,7 +20,7 @@ DEFINES += APP_QDOAS
 #----------------------------------------------
 
 unix {
-  LIBS += -lcoda -lhdfeos -lnetcdf -lmfhdf -ldf -lz -ljpeg -lhe5_hdfeos -lhdf5 -lhdf5_hl -lhdf5_cpp -lhdf5_hl_cpp -lqwt
+  LIBS += -lcoda -lhdfeos -lnetcdf -lmfhdf -ldf -lz -ljpeg -lhe5_hdfeos -lhdf5 -lhdf5_hl -lqwt
 }
 
 hpc {
@@ -50,7 +50,7 @@ caro {
     DEFINES     += QWT_DLL
   }
 
-  LIBS         += -L$$GSL_LIB_PATH -lgsl -L$$CODA_LIB_PATH -lcoda -L$$HDF_LIB_PATH -lhdf -L$$MFHDF_LIB_PATH -lmfhdf  -L$$HDFEOS_LIB_PATH -lhdfeos -L$$HDFEOS5_LIB_PATH -lhe5_hdfeos -L$$NETCDF_LIB_PATH -L$$HDF5_LIB_PATH -lhdf5 -lhdf5_hl -lhdf5_cpp -lhdf5_hl_cpp -lhdf5_tools -lnetcdf -lm
+  LIBS         += -L$$GSL_LIB_PATH -lgsl -L$$CODA_LIB_PATH -lcoda -L$$HDF_LIB_PATH -lhdf -L$$MFHDF_LIB_PATH -lmfhdf  -L$$HDFEOS_LIB_PATH -lhdfeos -L$$HDFEOS5_LIB_PATH -lhe5_hdfeos -L$$NETCDF_LIB_PATH -L$$HDF5_LIB_PATH -lhdf5 -lhdf5_hl -lhdf5_tools -lnetcdf -lm
 
   CONFIG      += windows
 
@@ -185,7 +185,7 @@ linux_package {
   doc.path = $${INSTALL_PREFIX}/doc
 }
 
-compute {
+bira {
   target.path = $${INSTALL_PREFIX}/bin_$${QDOAS_VERSION}
   doc.path = $${INSTALL_PREFIX}/doc_$${QDOAS_VERSION}
 }

@@ -26,8 +26,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <QFontMetrics>
 #include <QFileDialog>
 
-#include <stdexcept>
-
 #include "CWProjectTabInstrumental.h"
 #include "CValidator.h"
 #include "CWSiteListCombo.h"
@@ -178,10 +176,10 @@ CWProjectTabInstrumental::CWProjectTabInstrumental(const mediate_project_instrum
   index = m_formatStack->addWidget(m_ccdEevEdit);
   m_instrumentToStackIndexMap.insert(std::map<int,int>::value_type(PRJCT_INSTR_FORMAT_CCD_EEV, index));
 
-  // gdpnetcdf
-  m_gdpNetcdfEdit = new CWInstrGome1Edit(&(instr->gdpnetcdf));
-  index = m_formatStack->addWidget(m_gdpNetcdfEdit);
-  m_instrumentToStackIndexMap.insert(std::map<int,int>::value_type(PRJCT_INSTR_FORMAT_GOME1_NETCDF, index));
+  // gdpascii
+  m_gdpAsciiEdit = new CWInstrGdpEdit(&(instr->gdpascii));
+  index = m_formatStack->addWidget(m_gdpAsciiEdit);
+  m_instrumentToStackIndexMap.insert(std::map<int,int>::value_type(PRJCT_INSTR_FORMAT_GDP_ASCII, index));
 
   // gdpbin
   m_gdpBinEdit = new CWInstrGdpEdit(&(instr->gdpbin));
@@ -207,11 +205,6 @@ CWProjectTabInstrumental::CWProjectTabInstrumental(const mediate_project_instrum
   m_omiEdit = new CWInstrOmiEdit(&(instr->omi));
   index = m_formatStack->addWidget(m_omiEdit);
   m_instrumentToStackIndexMap.insert(std::map<int,int>::value_type(PRJCT_INSTR_FORMAT_OMI, index));
-
-  // omps
-  m_ompsEdit = new CWInstrOmpsEdit();
-  index = m_formatStack->addWidget(m_ompsEdit);
-  m_instrumentToStackIndexMap.insert(std::map<int,int>::value_type(PRJCT_INSTR_FORMAT_OMPS, index));
 
   // tropomi
   m_tropomiEdit = new CWInstrTropomiEdit(&(instr->tropomi));
@@ -247,11 +240,6 @@ CWProjectTabInstrumental::CWProjectTabInstrumental(const mediate_project_instrum
   m_oceanOpticsEdit = new CWInstrOceanOpticsEdit(&(instr->oceanoptics));
   index = m_formatStack->addWidget(m_oceanOpticsEdit);
   m_instrumentToStackIndexMap.insert(std::map<int,int>::value_type(PRJCT_INSTR_FORMAT_OCEAN_OPTICS	, index));
-
-  // frm4doas
-  m_frm4doasEdit = new CWInstrFrm4doasEdit(&(instr->frm4doas));
-  index = m_formatStack->addWidget(m_frm4doasEdit);
-  m_instrumentToStackIndexMap.insert(std::map<int,int>::value_type(PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF, index));
 
   // Site
   m_siteCombo = new CWSiteListCombo(this); // automatically populated
@@ -297,20 +285,18 @@ void CWProjectTabInstrumental::apply(mediate_project_instrumental_t *instr) cons
   m_rasasEdit->apply(&(instr->rasas));
   m_pdasiEasoeEdit->apply(&(instr->pdasieasoe));
   m_ccdEevEdit->apply(&(instr->ccdeev));
-  m_gdpNetcdfEdit->apply(&(instr->gdpnetcdf));
+  m_gdpAsciiEdit->apply(&(instr->gdpascii));
   m_gdpBinEdit->apply(&(instr->gdpbin));
   m_sciaPdsEdit->apply(&(instr->sciapds));
   m_uoftEdit->apply(&(instr->uoft));
   m_noaaEdit->apply(&(instr->noaa));
   m_omiEdit->apply(&(instr->omi));
-  m_ompsEdit->apply();
   m_tropomiEdit->apply(&(instr->tropomi));
   m_gome2Edit->apply(&(instr->gome2));
   m_mkzyEdit->apply(&(instr->mkzy));
   m_biraairborneEdit->apply(&(instr->biraairborne));
   m_biramobileEdit->apply(&(instr->biramobile));
   m_oceanOpticsEdit->apply(&(instr->oceanoptics));
-  m_frm4doasEdit->apply(&(instr->frm4doas));
 }
 
 void CWProjectTabInstrumental::slotInstrumentChanged(int instrument)
@@ -1192,83 +1178,6 @@ void CWInstrMfcbiraEdit::apply(struct instrumental_mfcbira *d) const
   d->lambdaMax = m_strayLightConfig->getLambdaMax();
 }
 
-//--------------------------------------------------------------------------
-
-CWInstrFrm4doasEdit::CWInstrFrm4doasEdit(const struct instrumental_frm4doas *d, QWidget *parent) :
-  CWAllFilesEdit(parent),
-  m_strayLightConfig(new StrayLightConfig(Qt::Horizontal, this))
-{
-  QString tmpStr;
-  int row = 0;
-  QVBoxLayout *mainLayout = new QVBoxLayout(this);
-  //  QHBoxLayout *groupLayout = new QHBoxLayout;
-  QGridLayout *gridLayout = new QGridLayout;
-
-  mainLayout->addWidget(m_strayLightConfig);
-
-  gridLayout->addWidget(new QLabel("Detector Size", this), row, 0, Qt::AlignRight);             // detector size label
-  m_detSizeEdit = new QLineEdit(this);
-  m_detSizeEdit->setFixedWidth(cStandardEditWidth);
-  m_detSizeEdit->setValidator(new QIntValidator(0, 8192, m_detSizeEdit));
-  gridLayout->addWidget(m_detSizeEdit, row, 1, Qt::AlignLeft);
-
-  ++row;
-
-  // Spectral Type
-  gridLayout->addWidget(new QLabel("Spectral Type", this), row, 0);
-  m_spectralTypeCombo = new QComboBox(this);
-  m_spectralTypeCombo->addItem("All", QVariant(PRJCT_INSTR_MAXDOAS_TYPE_NONE));
-  m_spectralTypeCombo->addItem("Zenith", QVariant(PRJCT_INSTR_MAXDOAS_TYPE_ZENITH));
-  m_spectralTypeCombo->addItem("Off-axis", QVariant(PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS));
-  m_spectralTypeCombo->addItem("Direct sun", QVariant(PRJCT_INSTR_MAXDOAS_TYPE_DIRECTSUN));
-  m_spectralTypeCombo->addItem("Almucantar", QVariant(PRJCT_INSTR_MAXDOAS_TYPE_ALMUCANTAR));
-  gridLayout->addWidget(m_spectralTypeCombo, row, 1);
-  ++row;  
-
-  // files
-  helperConstructCalInsFileWidgets(gridLayout, row,
-				   d->calibrationFile, sizeof(d->calibrationFile),
-				   d->transmissionFunctionFile, sizeof(d->transmissionFunctionFile));
-
-  mainLayout->addLayout(gridLayout);
-  mainLayout->addStretch(1);
-
-  // initialise the values
-
-  // detector size
-  tmpStr.setNum(d->detectorSize);
-  m_detSizeEdit->validator()->fixup(tmpStr);
-  m_detSizeEdit->setText(tmpStr);
-
-  // spectral type
-
-  int index = m_spectralTypeCombo->findData(QVariant(d->spectralType));
-  if (index != -1)
-    m_spectralTypeCombo->setCurrentIndex(index);  
-
-  // straylight bias
-  m_strayLightConfig->setChecked(d->straylight ? true : false);
-  m_strayLightConfig->setLambdaMin(d->lambdaMin);
-  m_strayLightConfig->setLambdaMax(d->lambdaMax);
-}
-
-void CWInstrFrm4doasEdit::apply(struct instrumental_frm4doas *d) const
-{
-  // detector size
-  d->detectorSize = m_detSizeEdit->text().toInt();
-
-  // spectral type
-  d->spectralType = m_spectralTypeCombo->itemData(m_spectralTypeCombo->currentIndex()).toInt();  
-
-  // files
-  strcpy(d->calibrationFile, m_fileOneEdit->text().toLocal8Bit().data());
-  strcpy(d->transmissionFunctionFile, m_fileTwoEdit->text().toLocal8Bit().data());
-
-  d->straylight = m_strayLightConfig->isChecked() ? 1 : 0;
-  d->lambdaMin = m_strayLightConfig->getLambdaMin();
-  d->lambdaMax = m_strayLightConfig->getLambdaMax();
-}
-
 //--------------------------------------------------------
 
 CWInstrMinimumEdit::CWInstrMinimumEdit(const struct instrumental_minimum *d, QWidget *parent) :
@@ -1336,6 +1245,123 @@ CWInstrCcdEdit::CWInstrCcdEdit(const struct instrumental_ccd *d, QWidget *parent
 
 void CWInstrCcdEdit::apply(struct instrumental_ccd *d) const
 {
+  // files
+  strcpy(d->calibrationFile, m_fileOneEdit->text().toLocal8Bit().data());
+  strcpy(d->transmissionFunctionFile, m_fileTwoEdit->text().toLocal8Bit().data());
+  strcpy(d->interPixelVariabilityFile, m_fileThreeEdit->text().toLocal8Bit().data());
+  strcpy(d->detectorNonLinearityFile, m_fileFourEdit->text().toLocal8Bit().data());
+}
+
+//--------------------------------------------------------
+
+CWInstrCcdUlbEdit::CWInstrCcdUlbEdit(const struct instrumental_ccdulb *d, QWidget *parent) :
+  CWAllFilesEdit(parent)
+{
+  QString tmpStr;
+  int row = 0;
+  QVBoxLayout *mainLayout = new QVBoxLayout(this);
+  QGridLayout *gridLayout = new QGridLayout;
+
+  // grating
+  gridLayout->addWidget(new QLabel("Grating number"), row, 0);
+  m_gratingEdit = new QLineEdit(this);
+  m_gratingEdit->setFixedWidth(cStandardEditWidth);
+  m_gratingEdit->setValidator(new QIntValidator(0, 99, m_gratingEdit));
+  gridLayout->addWidget(m_gratingEdit, row, 1);
+  ++row;
+
+  // central wavelength
+  gridLayout->addWidget(new QLabel("Central Wavelength (nm)"), row, 0);
+  m_cenLambdaEdit = new QLineEdit(this);
+  m_cenLambdaEdit->setFixedWidth(cStandardEditWidth);
+  m_cenLambdaEdit->setValidator(new QIntValidator(0, 999, m_cenLambdaEdit));
+  gridLayout->addWidget(m_cenLambdaEdit, row, 1);
+  ++row;
+
+  // files - non standard files ..
+  helperConstructFileWidget(&m_fileOneEdit, gridLayout, row,
+			    d->calibrationFile, sizeof(d->calibrationFile),
+			    "Calibraton File", SLOT(slotCalibOneBrowse()));
+
+  helperConstructFileWidget(&m_fileTwoEdit, gridLayout, row,
+			    d->offsetFile, sizeof(d->offsetFile),
+			    "Offset", SLOT(slotOffsetTwoBrowse()));
+
+  helperConstructIpvDnlFileWidgets(gridLayout, row,
+				   d->interPixelVariabilityFile, sizeof(d->interPixelVariabilityFile),
+				   d->detectorNonLinearityFile, sizeof(d->detectorNonLinearityFile));
+
+  gridLayout->setColumnMinimumWidth(0, cSuggestedColumnZeroWidth);
+  gridLayout->setColumnMinimumWidth(2, cSuggestedColumnTwoWidth);
+
+  mainLayout->addLayout(gridLayout);
+  mainLayout->addStretch(1);
+
+  // initialise values
+  m_gratingEdit->setText(tmpStr.setNum(d->grating));
+  m_cenLambdaEdit->setText(tmpStr.setNum(d->centralWavelength));
+}
+
+void CWInstrCcdUlbEdit::apply(struct instrumental_ccdulb *d) const
+{
+  // grating
+  d->grating = m_gratingEdit->text().toInt();
+
+  // central wavlength
+  d->centralWavelength = m_cenLambdaEdit->text().toInt();
+
+  // files
+  strcpy(d->calibrationFile, m_fileOneEdit->text().toLocal8Bit().data());
+  strcpy(d->offsetFile, m_fileTwoEdit->text().toLocal8Bit().data());
+  strcpy(d->interPixelVariabilityFile, m_fileThreeEdit->text().toLocal8Bit().data());
+  strcpy(d->detectorNonLinearityFile, m_fileFourEdit->text().toLocal8Bit().data());
+}
+
+//--------------------------------------------------------
+
+CWInstrPdaEggUlbEdit::CWInstrPdaEggUlbEdit(const struct instrumental_pdaeggulb *d, QWidget *parent) :
+  CWAllFilesEdit(parent)
+{
+  int row = 0;
+  QVBoxLayout *mainLayout = new QVBoxLayout(this);
+  QGridLayout *gridLayout = new QGridLayout;
+
+  // Curve Type
+  gridLayout->addWidget(new QLabel("Curve Type", this), row, 0);
+  m_curveTypeCombo = new QComboBox(this);
+  m_curveTypeCombo->addItem("Manual", QVariant(PRJCT_INSTR_ULB_TYPE_MANUAL));
+  m_curveTypeCombo->addItem("High", QVariant(PRJCT_INSTR_ULB_TYPE_HIGH));
+  m_curveTypeCombo->addItem("Low", QVariant(PRJCT_INSTR_ULB_TYPE_LOW));
+  gridLayout->addWidget(m_curveTypeCombo, row, 1);
+  ++row;
+
+  // files
+  helperConstructFileWidgets(gridLayout, row,
+			     d->calibrationFile, sizeof(d->calibrationFile),
+			     d->transmissionFunctionFile, sizeof(d->transmissionFunctionFile),
+			     d->interPixelVariabilityFile, sizeof(d->interPixelVariabilityFile),
+			     d->detectorNonLinearityFile, sizeof(d->detectorNonLinearityFile));
+
+  gridLayout->setColumnMinimumWidth(0, cSuggestedColumnZeroWidth);
+  gridLayout->setColumnMinimumWidth(2, cSuggestedColumnTwoWidth);
+
+  mainLayout->addLayout(gridLayout);
+  mainLayout->addStretch(1);
+
+  // initial values
+
+  // curve type
+  int index = m_curveTypeCombo->findData(QVariant(d->curveType));
+  if (index != -1)
+    m_curveTypeCombo->setCurrentIndex(index);
+
+}
+
+void CWInstrPdaEggUlbEdit::apply(struct instrumental_pdaeggulb *d) const
+{
+  // curve type
+  d->curveType = m_curveTypeCombo->itemData(m_curveTypeCombo->currentIndex()).toInt();
+
   // files
   strcpy(d->calibrationFile, m_fileOneEdit->text().toLocal8Bit().data());
   strcpy(d->transmissionFunctionFile, m_fileTwoEdit->text().toLocal8Bit().data());
@@ -1441,6 +1467,81 @@ void CWInstrCcdEevEdit::apply(struct instrumental_ccdeev *d) const
 
 //--------------------------------------------------------
 
+CWInstrOpusEdit::CWInstrOpusEdit(const struct instrumental_opus *d, QWidget *parent) :
+  CWCalibInstrEdit(parent)
+{
+  QString tmpStr;
+  int row = 0;
+  QVBoxLayout *mainLayout = new QVBoxLayout(this);
+  QGridLayout *gridLayout = new QGridLayout;
+
+  // detector size
+  gridLayout->addWidget(new QLabel("Detector Size", this), row, 0);
+  m_detSizeEdit = new QLineEdit(this);
+  m_detSizeEdit->setFixedWidth(cStandardEditWidth);
+  m_detSizeEdit->setValidator(new QIntValidator(0, 8192, m_detSizeEdit));
+  gridLayout->addWidget(m_detSizeEdit, row, 1);
+  ++row;
+
+  // time shift
+  gridLayout->addWidget(new QLabel("Time Shift (hours)", this), row, 0);
+  m_timeShiftEdit = new QLineEdit(this);
+  m_timeShiftEdit->setFixedWidth(cStandardEditWidth);
+  m_timeShiftEdit->setValidator(new CDoubleFixedFmtValidator(-24.0, 24.0, 2, m_timeShiftEdit));
+  gridLayout->addWidget(m_timeShiftEdit, row, 1);
+  ++row;
+
+  //flag transmittance
+  m_transmittanceCheck = new QCheckBox("Transmittance", this);
+  gridLayout->addWidget(m_transmittanceCheck, row, 1);
+  ++row;
+
+  // files
+  helperConstructCalInsFileWidgets(gridLayout, row,
+				   d->calibrationFile, sizeof(d->calibrationFile),
+				   d->transmissionFunctionFile, sizeof(d->transmissionFunctionFile));
+
+  gridLayout->setColumnMinimumWidth(0, cSuggestedColumnZeroWidth);
+  gridLayout->setColumnMinimumWidth(2, cSuggestedColumnTwoWidth);
+
+  mainLayout->addLayout(gridLayout);
+  mainLayout->addStretch(1);
+
+  // initialise values
+
+  // detector size
+  tmpStr.setNum(d->detectorSize);
+  m_detSizeEdit->validator()->fixup(tmpStr);
+  m_detSizeEdit->setText(tmpStr);
+
+  // transmittance
+  m_transmittanceCheck->setCheckState(d->flagTransmittance ? Qt::Checked : Qt::Unchecked);
+
+  // time shift
+  tmpStr.setNum(d->timeShift);
+  m_timeShiftEdit->validator()->fixup(tmpStr);
+  m_timeShiftEdit->setText(tmpStr);
+
+}
+
+void CWInstrOpusEdit::apply(struct instrumental_opus *d) const
+{
+  // detector size
+  d->detectorSize = m_detSizeEdit->text().toInt();
+
+  // time shift
+  d->timeShift = m_timeShiftEdit->text().toDouble();
+
+  // transmittance
+  d->flagTransmittance = (m_transmittanceCheck->checkState() == Qt::Checked) ? 1 : 0;
+
+  // files
+  strcpy(d->calibrationFile, m_fileOneEdit->text().toLocal8Bit().data());
+  strcpy(d->transmissionFunctionFile, m_fileTwoEdit->text().toLocal8Bit().data());
+}
+
+//--------------------------------------------------------
+
 CWInstrGdpEdit::CWInstrGdpEdit(const struct instrumental_gdp *d, QWidget *parent) :
   CWCalibInstrEdit(parent)
 {
@@ -1498,75 +1599,6 @@ CWInstrGdpEdit::CWInstrGdpEdit(const struct instrumental_gdp *d, QWidget *parent
 }
 
 void CWInstrGdpEdit::apply(struct instrumental_gdp *d) const
-{
-  // band
-  d->bandType = m_bandTypeCombo->itemData(m_bandTypeCombo->currentIndex()).toInt();
-
-  // pixel type
-  d->pixelType = m_pixelTypeCombo->itemData(m_pixelTypeCombo->currentIndex()).toInt();
-
-  // files
-  strcpy(d->calibrationFile, m_fileOneEdit->text().toLocal8Bit().data());
-  strcpy(d->transmissionFunctionFile, m_fileTwoEdit->text().toLocal8Bit().data());
-}
-
-//--------------------------------------------------------
-
-CWInstrGome1Edit::CWInstrGome1Edit(const struct instrumental_gdp *d, QWidget *parent) :
-  CWCalibInstrEdit(parent)
-{
-  QString tmpStr;
-  int row = 0;
-  QVBoxLayout *mainLayout = new QVBoxLayout(this);
-  QGridLayout *gridLayout = new QGridLayout;
-
-  // band
-  gridLayout->addWidget(new QLabel("Band Type", this), row, 0);
-  m_bandTypeCombo = new QComboBox(this);
-  m_bandTypeCombo->addItem("Band 1a", QVariant(PRJCT_INSTR_GDP_BAND_1A));
-  m_bandTypeCombo->addItem("Band 1b", QVariant(PRJCT_INSTR_GDP_BAND_1B));
-  m_bandTypeCombo->addItem("Band 2a", QVariant(PRJCT_INSTR_GDP_BAND_2A));
-  m_bandTypeCombo->addItem("Band 2b", QVariant(PRJCT_INSTR_GDP_BAND_2B));
-  m_bandTypeCombo->addItem("Band 3", QVariant(PRJCT_INSTR_GDP_BAND_3));
-  m_bandTypeCombo->addItem("Band 4", QVariant(PRJCT_INSTR_GDP_BAND_4));
-  gridLayout->addWidget(m_bandTypeCombo, row, 1);
-  ++row;
-
-  // pixel type
-
-  gridLayout->addWidget(new QLabel("Pixel Type", this), row, 0);
-  m_pixelTypeCombo = new QComboBox(this);
-  m_pixelTypeCombo->addItem("All", QVariant(PRJCT_INSTR_GOME1_PIXEL_ALL));
-  m_pixelTypeCombo->addItem("Ground pixels only", QVariant(PRJCT_INSTR_GOME1_PIXEL_GROUND));
-  m_pixelTypeCombo->addItem("Backscans only", QVariant(PRJCT_INSTR_GOME1_PIXEL_BACKSCAN));
-  gridLayout->addWidget(m_pixelTypeCombo, row, 1);
-  ++row;
-
-  // files
-  helperConstructCalInsFileWidgets(gridLayout, row,
-				   d->calibrationFile, sizeof(d->calibrationFile),
-				   d->transmissionFunctionFile, sizeof(d->transmissionFunctionFile));
-
-  gridLayout->setColumnMinimumWidth(0, cSuggestedColumnZeroWidth);
-  gridLayout->setColumnMinimumWidth(2, cSuggestedColumnTwoWidth);
-
-  mainLayout->addLayout(gridLayout);
-  mainLayout->addStretch(1);
-
-  // initial values
-
-  // band
-  int index = m_bandTypeCombo->findData(QVariant(d->bandType));
-  if (index != -1)
-    m_bandTypeCombo->setCurrentIndex(index);
-
-  // pixel type
-  index = m_pixelTypeCombo->findData(QVariant(d->pixelType));
-  if (index != -1)
-    m_pixelTypeCombo->setCurrentIndex(index);
-}
-
-void CWInstrGome1Edit::apply(struct instrumental_gdp *d) const
 {
   // band
   d->bandType = m_bandTypeCombo->itemData(m_bandTypeCombo->currentIndex()).toInt();
@@ -1943,16 +1975,6 @@ void CWInstrOmiEdit::apply(struct instrumental_omi *d) const
 
 //--------------------------------------------------------
 
-
-void CWInstrTropomiEdit::slot_browse_reference_directory()
-{
-  QString directory  = QFileDialog::getExistingDirectory(this, "Select directory for radiance reference spectra", QDir::currentPath());
-
-  if (!directory.isEmpty()) {
-    m_reference_directory_edit->setText(directory);
-  }
-}
-
 CWInstrTropomiEdit::CWInstrTropomiEdit(const struct instrumental_tropomi *pInstrTropomi, QWidget *parent) : CWCalibInstrEdit(parent) {
 
   QVBoxLayout *mainLayout = new QVBoxLayout(this);
@@ -1972,24 +1994,15 @@ CWInstrTropomiEdit::CWInstrTropomiEdit(const struct instrumental_tropomi *pInstr
   if (index != -1)
     m_spectralBandCombo->setCurrentIndex(index);
 
+
   gridLayout->addWidget(m_spectralBandCombo, row, 1);
-
   ++row;
-  helperConstructFileWidget(&m_reference_directory_edit,gridLayout,row, pInstrTropomi->reference_orbit_dir,
-                            sizeof(pInstrTropomi->reference_orbit_dir), "Reference orbit directory" , SLOT(slot_browse_reference_directory()));
-  ++row;
-
-  // Track selection
-  gridLayout->addWidget(new QLabel("Row selection", this), row, 0);
-  m_trackSelection = new QLineEdit(this);
-  gridLayout->addWidget(m_trackSelection, row, 1);
-  ++row;
-
   helperConstructCalInsFileWidgets(gridLayout, row,
 				   pInstrTropomi->calibrationFile, sizeof(pInstrTropomi->calibrationFile),
 				   pInstrTropomi->instrFunctionFile, sizeof(pInstrTropomi->instrFunctionFile));
 
-		m_trackSelection->setText(QString(pInstrTropomi->trackSelection));
+
+
 }
 
 void CWInstrTropomiEdit::apply(struct instrumental_tropomi *pInstrTropomi) const
@@ -1998,22 +2011,7 @@ void CWInstrTropomiEdit::apply(struct instrumental_tropomi *pInstrTropomi) const
   strcpy(pInstrTropomi->instrFunctionFile, m_fileTwoEdit->text().toLocal8Bit().data());
   // spectral band
   pInstrTropomi->spectralBand = static_cast<tropomiSpectralBand>(m_spectralBandCombo->itemData(m_spectralBandCombo->currentIndex()).toInt());
-  strcpy(pInstrTropomi->trackSelection, m_trackSelection->text().toLocal8Bit().data());
-
-  // radiance reference directory
-  if(m_reference_directory_edit->text().size() < sizeof(pInstrTropomi->reference_orbit_dir))
-     strcpy(pInstrTropomi->reference_orbit_dir,m_reference_directory_edit->text().toLocal8Bit().data());
-  else
-    throw(std::runtime_error("Filename too long: " + m_reference_directory_edit->text().toStdString()));
 }
-
-//--------------------------------------------------------
-
-CWInstrOmpsEdit::CWInstrOmpsEdit(QWidget *parent) :
-  CWCalibInstrEdit(parent) { }
-
-void CWInstrOmpsEdit::apply(void) { }
-
 
 //--------------------------------------------------------
 

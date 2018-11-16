@@ -97,10 +97,6 @@ bool CSelectorSubHandler::start(const QString &element, const QXmlAttributes &at
     d->selected[d->nSelected] = PRJCT_RESULTS_PIXEL_TYPE;
   else if (str == "orbit")
     d->selected[d->nSelected] = PRJCT_RESULTS_ORBIT;
-  else if (str == "corner_longitudes")
-    d->selected[d->nSelected] = PRJCT_RESULTS_LON_CORNERS;
-  else if (str == "corner_latitudes")
-    d->selected[d->nSelected] = PRJCT_RESULTS_LAT_CORNERS;
   else if (str == "longit")
     d->selected[d->nSelected] = PRJCT_RESULTS_LONGIT;
   else if (str == "latit")
@@ -265,14 +261,6 @@ bool CSelectorSubHandler::start(const QString &element, const QXmlAttributes &at
 
   else if (str == "precalculated_fluxes")
     d->selected[d->nSelected] = PRJCT_RESULTS_PRECALCULATED_FLUXES;
-  else if (str == "scan_index")
-    d->selected[d->nSelected] = PRJCT_RESULTS_SCANINDEX;
-  else if (str == "zenith_before_index")
-    d->selected[d->nSelected] = PRJCT_RESULTS_ZENITH_BEFORE;
-  else if (str == "zenith_after_index")
-    d->selected[d->nSelected] = PRJCT_RESULTS_ZENITH_AFTER;
-  else if (str == "rc")
-    d->selected[d->nSelected] = PRJCT_RESULTS_RC;    
   else
     return postErrorMessage("Invalid output field " + str);
 
@@ -722,6 +710,8 @@ bool CProjectInstrumentalSubHandler::start(const QXmlAttributes &atts)
     m_instrumental->format = PRJCT_INSTR_FORMAT_PDASI_EASOE;
   else if (str == "ccdeev")
     m_instrumental->format = PRJCT_INSTR_FORMAT_CCD_EEV;
+  else if (str == "gdpascii")
+    m_instrumental->format = PRJCT_INSTR_FORMAT_GDP_ASCII;
   else if (str == "gdpbin")
     m_instrumental->format = PRJCT_INSTR_FORMAT_GDP_BIN;
   else if (str == "sciapds")
@@ -732,8 +722,6 @@ bool CProjectInstrumentalSubHandler::start(const QXmlAttributes &atts)
     m_instrumental->format = PRJCT_INSTR_FORMAT_NOAA;
   else if (str == "omi")
     m_instrumental->format = PRJCT_INSTR_FORMAT_OMI;
-  else if (str == "omps")
-    m_instrumental->format = PRJCT_INSTR_FORMAT_OMPS;
   else if (str == "tropomi")
     m_instrumental->format = PRJCT_INSTR_FORMAT_TROPOMI;
   else if (str == "gome2")
@@ -742,10 +730,6 @@ bool CProjectInstrumentalSubHandler::start(const QXmlAttributes &atts)
     m_instrumental->format = PRJCT_INSTR_FORMAT_MKZY;
   else if (str == "oceanoptics")
     m_instrumental->format = PRJCT_INSTR_FORMAT_OCEAN_OPTICS;
-  else if (str == "frm4doas")
-    m_instrumental->format = PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF;
-  else if (str == "gdpnetcdf")
-    m_instrumental->format = PRJCT_INSTR_FORMAT_GOME1_NETCDF;
   else
     return postErrorMessage("Invalid instrumental format");
 
@@ -1097,9 +1081,8 @@ bool CProjectInstrumentalSubHandler::start(const QString &element, const QXmlAtt
         return postErrorMessage("Invalid ccdeev Type");
      }
   }
-  else if (element == "gdpnetcdf") { // GDP netCDF
-    helperLoadGdp(atts, &(m_instrumental->gdpnetcdf));
-
+  else if (element == "gdpascii") { // GDP ASCII
+    helperLoadGdp(atts, &(m_instrumental->gdpascii));
   }
   else if (element == "gdpbin") { // GDP BIN
     helperLoadGdp(atts, &(m_instrumental->gdpbin));
@@ -1189,25 +1172,6 @@ bool CProjectInstrumentalSubHandler::start(const QString &element, const QXmlAtt
 #undef EXPAND
       return postErrorMessage("No Tropomi spectral band configured.");
 
-    str = atts.value("reference_orbit_dir");
-    if (!str.isEmpty()) {
-      str = m_master->pathExpand(str);
-      if (str.length() < sizeof(m_instrumental->tropomi.reference_orbit_dir))
-	strcpy(m_instrumental->tropomi.reference_orbit_dir, str.toLocal8Bit().data());
-      else
-	return postErrorMessage("Tropomi reference orbit directory name too long");
-    }
-
-    str = atts.value("trackSelection");
-    if (!str.isEmpty()) {
-      str = m_master->pathExpand(str);
-      if (str.length() < (int)sizeof(m_instrumental->tropomi.trackSelection))
-	strcpy(m_instrumental->tropomi.trackSelection, str.toLocal8Bit().data());
-      else
-	return postErrorMessage("Track selection string too long");
-    }
-
-
     str = atts.value("calib");
     if (!str.isEmpty()) {
       str = m_master->pathExpand(str);
@@ -1258,63 +1222,21 @@ bool CProjectInstrumentalSubHandler::start(const QString &element, const QXmlAtt
     str = atts.value("calib");
     if (!str.isEmpty()) {
       str = m_master->pathExpand(str);
-      if (str.length() < sizeof(m_instrumental->oceanoptics.calibrationFile))
+      if (str.length() < (int)sizeof(m_instrumental->oceanoptics.calibrationFile))
 	strcpy(m_instrumental->oceanoptics.calibrationFile, str.toLocal8Bit().data());
       else
-	return postErrorMessage("Calibration Filename too long");
+	return postErrorMessage(CALIBRATION_FILENAME_ERR);
     }
 
-    str = atts.value("instr");
+    str = atts.value("transmission");
+    if (str.isEmpty())
+      str = atts.value("instr"); // check for old config files
     if (!str.isEmpty()) {
       str = m_master->pathExpand(str);
-      if (str.length() < sizeof(m_instrumental->oceanoptics.transmissionFunctionFile))
+      if (str.length() < (int)sizeof(m_instrumental->oceanoptics.transmissionFunctionFile))
 	strcpy(m_instrumental->oceanoptics.transmissionFunctionFile, str.toLocal8Bit().data());
       else
-	return postErrorMessage("Instrument Function  Filename too long");
-    }
-  }
-  else if (element == "frm4doas") { // FRM4DOAS netCDF
-    QString str;
-
-    m_instrumental->frm4doas.detectorSize = atts.value("size").toInt();
-    m_instrumental->frm4doas.straylight = (atts.value("straylight") == "true") ? 1 : 0;
-    m_instrumental->frm4doas.lambdaMin = atts.value("lambda_min").toDouble();
-    m_instrumental->frm4doas.lambdaMax = atts.value("lambda_max").toDouble();
-
-    str = atts.value("type");
-
-    if (!str.isEmpty())
-      {
-      if (str == "all")
-        m_instrumental->frm4doas.spectralType = PRJCT_INSTR_MAXDOAS_TYPE_NONE;
-      else if (str == "zenith")
-        m_instrumental->frm4doas.spectralType = PRJCT_INSTR_MAXDOAS_TYPE_ZENITH;        
-      else if (str == "off-axis")
-        m_instrumental->frm4doas.spectralType = PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS;
-      else if (str == "direct-sun")
-        m_instrumental->frm4doas.spectralType = PRJCT_INSTR_MAXDOAS_TYPE_DIRECTSUN;
-      else if (str == "almucantar")
-        m_instrumental->frm4doas.spectralType = PRJCT_INSTR_MAXDOAS_TYPE_ALMUCANTAR;
-      else
-        return postErrorMessage("Invalid ccdeev Type");
-     }    
-
-    str = atts.value("calib");
-    if (!str.isEmpty()) {
-      str = m_master->pathExpand(str);
-      if (str.length() < sizeof(m_instrumental->frm4doas.calibrationFile))
-	strcpy(m_instrumental->frm4doas.calibrationFile, str.toLocal8Bit().data());
-      else
-	return postErrorMessage("Calibration Filename too long");
-    }
-
-    str = atts.value("instr");
-    if (!str.isEmpty()) {
-      str = m_master->pathExpand(str);
-      if (str.length() < sizeof(m_instrumental->frm4doas.transmissionFunctionFile))
-	strcpy(m_instrumental->frm4doas.transmissionFunctionFile, str.toLocal8Bit().data());
-      else
-	return postErrorMessage("Instrument Function  Filename too long");
+	return postErrorMessage(TRANSMISSION_FILENAME_ERR);
     }
   }
 

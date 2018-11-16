@@ -143,27 +143,6 @@ void ProjectApplyChoice(const CProjectConfigItem *p,                            
    }
  }
 
-void ProjectApplyString(const CProjectConfigItem *p,                               // project to modify
-                     QString *pXmlKey,                                          // the path of the field to replace
-                     QString *pXmlValue,                                        // string with the new value
-                     char *field)                                            // pointer to the field to change (should point within the previous target structure)
- {
- 	// Declarations
-
- 	char msgString[MAX_STR_LEN+1];
-
- 	// Build message with old and new values
-
-  sprintf(msgString,"%s : %s replaced by %s (%s)",
-                     pXmlKey->toLocal8Bit().constData(),field,
-                     pXmlValue->toLocal8Bit().constData(),p->name().toLocal8Bit().constData());
-  std::cout << msgString << std::endl;
-
-  // Replace the old value by the new one
-
-  strcpy(field,pXmlValue->toLocal8Bit().constData());
- }
-
 // ===================================
 // PROJECT PROPERTIES : SELECTION PAGE
 // ===================================
@@ -306,45 +285,6 @@ RC ParseAnalysis(QStringList &xmlFields,int xmlFieldN,int startingField,QString 
   return rc;
  }
 
-// =====================================
-// PROJECT PROPERTIES : CALIBRATION PAGE
-// =====================================
-
-RC ParseCalibration(QStringList &xmlFields,int xmlFieldN,int startingField,QString *pXmlKey,QString *pXmlValue,const CProjectConfigItem *p)
- {
-  // Declarations
-
-  mediate_project_t newProjectProperties;
-  int indexField;
-  RC  rc;
-
-  // Initializations
-
-  rc=ERROR_ID_NO;
-  memcpy(&newProjectProperties,(mediate_project_t *)p->properties(),sizeof(mediate_project_t));
-
-  for (indexField=startingField;indexField<xmlFieldN;indexField++)
-   {
-    // top attributes
-
-    if (xmlFields.at(indexField)=="line")
-     {
-      if (indexField+1>=xmlFieldN)
-       std::cout << "line attributes are missing" << std::endl;
-      else if (xmlFields.at(indexField+1)=="slfFile")
-       ProjectApplyString(p,pXmlKey,pXmlValue,newProjectProperties.calibration.slfFile);
-      else
-       std::cout << pXmlKey->toLocal8Bit().constData() << " can not be changed " << std::endl;
-     }
-   }
-
-  p->SetProperties((mediate_project_t *)&newProjectProperties);
-
-  // Return
-
-  return rc;
- }
-
 // ======================================
 // PROJECT PROPERTIES : INSTRUMENTAL PAGE
 // ======================================
@@ -434,16 +374,6 @@ RC ParseInstrumental(QStringList &xmlFields,int xmlFieldN,int startingField,QStr
         std::cout << "project/instrumental/omi/calib field can not be changed" << std::endl;
        else if (xmlFields.at(indexField+1)=="instr")
         std::cout << "project/instrumental/omi/instr field can not be changed yet" << std::endl;
-      }
-     else if (xmlFields.at(indexField)=="tropomi")
-      {
-       if (indexField+1>=xmlFieldN)
-        std::cout << "tropomi attribute is missing" << std::endl;
-       else if (xmlFields.at(indexField+1)=="trackSelection")
-        {
-         std::cout << "project/instrumental/tropomi/trackSelection : " << newProjectProperties.instrumental.tropomi.trackSelection << " replaced by " << pXmlValue->toLocal8Bit().constData() << std::endl;
-         strcpy(newProjectProperties.instrumental.tropomi.trackSelection,pXmlValue->toLocal8Bit().constData());
-        }
       }
      else if (xmlFields.at(indexField)=="gome2")
       std::cout << "project/instrumental/gome2 field can not be changed yet" << std::endl;
@@ -719,8 +649,6 @@ RC QDOASXML_Parse(QList<QString> &xmlCommands,const CProjectConfigItem *p)
          	 rc=ParseInstrumental(xmlFields,xmlFieldsN,indexField+1,&xmlValue,p);
          	else if (xmlFields.at(indexField)=="analysis_window")
      	 	   rc=ParseAnalysisWindow(xmlFields,xmlFieldsN,indexField+1,&xmlKey,&xmlValue,p);
-         	else if (xmlFields.at(indexField)=="calibration")
-     	 	   rc=ParseCalibration(xmlFields,xmlFieldsN,indexField+1,&xmlKey,&xmlValue,p);
 
      	 	  break;
          }

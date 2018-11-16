@@ -10,7 +10,7 @@ INCLUDEPATH  += ../mediator ../common ../engine
 include( ../config.pri )
 
 CONFIG += qt thread $$CODE_GENERATION
-QT = core gui svg xml widgets printsupport
+QT = core gui xml widgets printsupport
 PRE_TARGETDEPS += ../common/libcommon.a ../engine/libengine.a ../mediator/libmediator.a
 
 DEFINES += APP_USAMP
@@ -90,7 +90,7 @@ RESOURCES = ../resources/usamp.qrc
 #----------------------------------------------
 
 target.path = $${INSTALL_PREFIX}/bin
-compute {
+bira {
   target.path = $${INSTALL_PREFIX}/bin_$${QDOAS_VERSION}
 }
 hpc {

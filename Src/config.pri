@@ -13,13 +13,13 @@ QMAKE_CFLAGS += -g -std=gnu99 -Wall -Wextra -pedantic \
 QMAKE_LFLAGS += -g
 QMAKE_LFLAGS_RELEASE=
 
-QDOAS_VERSION=FRM4DOAS
+QDOAS_VERSION=3.2
 
 win64 {
   QDOAS_VERSION = "$${QDOAS_VERSION}_x86_64"
 }
 
-DEFINES += QDOAS_VERSION="\"\\\"$${QDOAS_VERSION}\\\"\"" QDOAS_DATE="\"\\\"14 June 2018\\\"\""
+DEFINES += QDOAS_VERSION="\"\\\"$${QDOAS_VERSION}\\\"\"" QDOAS_DATE="\"\\\"12 September 2017\\\"\""
 
 LIBS += -L../mediator -lmediator -L../engine -lengine -L../common -lcommon
 DEPENDPATH += ../common ../engine ../mediator
@@ -31,15 +31,25 @@ LIBS += -lgsl -lgslcblas
 # Platform dependency ...
 #----------------------------------------------
 
-# QDOAS linux package: uses own version of Qt, HDF, ... libraries,
-# with a wrapper script that ensures the correct libraries are used
-# when running the package on another system.
+bira {
+  LIBS -= -lgslcblas
+  LIBS += -latlas
+  INSTALL_PREFIX = /bira-iasb/projects/DOAS/Programmes/QDOAS
+  QMAKE_CFLAGS_RELEASE -= -g
+  QMAKE_CXXFLAGS_RELEASE -= -g
+  INCLUDEPATH += $$INSTALL_PREFIX/include
+  QMAKE_LIBDIR += $$INSTALL_PREFIX/lib_$${QDOAS_VERSION} $$INSTALL_PREFIX/lib_common
+  QMAKE_RPATHDIR += $$INSTALL_PREFIX/lib_$${QDOAS_VERSION} $$INSTALL_PREFIX/lib_common
+}
+
+# portable executable for linux using Linux Standard Base (LSB)
+# requires static Qt and Qwt libraries compiled using LSB, as well as
+# static hdf/hdf5/coda... libraries
 #
-# to build, run
+# to build, run 'qmake all.pro CONFIG+=linux_package CONFIG-=unix
 #
-#   /bira-iasb/projects/DOAS/Programmes/QDOAS-linux-package/bin/qmake all.pro CONFIG+=linux_package CONFIG-=unix
-#   make
-#
+# lsbcc and lsbc++ must be on the PATH, and you must use the version
+# of qmake installed with the static Qt libraries
 linux_package {
   QMAKE_CXX = g++
   QMAKE_CC = gcc
@@ -53,6 +63,8 @@ linux_package {
   # cd /home/thomasd/Code/Qdoas-package/src/Qdoas/linux_package \
   #    && tar --exclude-vcs --exclude=.directory --exclude-backups \
   #    -czf ../qdoas_linux_x64.tar.gz .
+  INSTALL_PREFIX = /home/thomasd/Code/Qdoas-package/src/Qdoas/linux_package
+  PREFIX = /home/thomasd/Code/Qdoas-package
   INCLUDEPATH += $$PREFIX/include
   INCLUDEPATH += $$PREFIX/include/hdf4
   INCLUDEPATH += $$PREFIX/include/qwt
@@ -127,11 +139,8 @@ ubuntu {
   INCLUDEPATH += /usr/include/hdf5/serial
   INCLUDEPATH += /usr/include/hdf-eos5
   INCLUDEPATH += /usr/include/x86_64-linux-gnu/hdf
-  INCLUDEPATH += /usr/include/linux/
-  INCLUDEPATH += /usr/local/qwt-6.1.3/include
 
   QMAKE_LIBDIR += /usr/lib/x86_64-linux-gnu/hdf5/serial/
-  QMAKE_LIBDIR += /usr/local/qwt-6.1.3/lib/
 }
 
 asan { # use 'CONFIG+=asan' to build with adress sanitizer support
@@ -150,120 +159,35 @@ openblas {
   LIBS += -lopenblas
 }
 
-# Notes for installation on bira computes
-#
-# Currently we have old SLES systems and new CentOS systems.  We can
-# compile and run QDOAS on both, BUT
-#
-# * if we compile on CentOS, the binary will not work on SLES (because
-#   the CentOS system uses a newer libc)
-#
-# * if we compile on SLES, the binary will also work on CentOS, if the
-#   user loads module 17/linalg (<- needed for libatlas.so on CentOS).
-#
-# compilation on SLES computes:
-# -----------------------------
-#
-# QDOAS needs a somewhat recent GCC compiler.  On the SLES systems, we
-# need to load a module for that:
-#
-# module load gcc-4.9.2
-# qmake all.pro CONFIG+=compute
-# make
-#
-# compilation on CentOS computes:
-# -------------------------------
-# module load 17/base 17/linalg
-# qmake-qt4 all.pro CONFIG+=compute
-# make
-#
-# (We need qmake-qt4.  Qt4 and Qt5 are both available on CentOS, but
-# our version of Qwt is compiled against Qt4.)
-#
-# installation:
-# -------------
-#
-# make install <- !!! attention
-#
-# This will install in /bira-iasb/projects/DOAS/Programmes/QDOAS/bin_$$QDOAS_VERSION
-compute {
-  # Atlas is faster than gslcblas, so use it when it is available
-  LIBS -= -lgslcblas
-  LIBS += -latlas
-  INSTALL_PREFIX = /bira-iasb/projects/DOAS/Programmes/QDOAS
-  INCLUDEPATH += $$INSTALL_PREFIX/include
-  QMAKE_LIBDIR += $$INSTALL_PREFIX/lib_2016 $$INSTALL_PREFIX/lib_common
-  QMAKE_RPATHDIR += /bira-iasb/softs/gcc492/lib $$INSTALL_PREFIX/lib_2016 $$INSTALL_PREFIX/lib_common
-
-  # When compiling from the CentOS computes, uncomment these:
-  #
-  #QMAKE_LIBDIR += /bira-iasb/softs/17/linalg/lib64 /bira-iasb/softs/17/base/lib64
-  #QMAKE_RPATHDIR += /bira-iasb/softs/17/linalg/lib64 /bira-iasb/softs/17/base/lib64
-}
-
 # Notes for installation on hpc:
 #
-# Modules:
-# --------
+# hdf-eos5:
 #
-# Currently, QDOAS relies on modules 17/doas, 17/intel-17u1, 17/base,
-# 17/hdf-netcdf and 17/linalg.  The module 17/doas, installed in
-# /space/hpc-apps/bira/17/doas, contains libraries maintained by us
-# specifically for QDOAS.  The '17' indicates the version (we might
-# use newer versions later on).  The different versions of QDOAS
-# itself will be installed in /space/hpc-apps/bira/doas.  Different
-# versions might use different modules (i.e. in the future, versions
-# using module 17/doas might coexist with versions using a newer
-# module version such as 18/doas)
-#
-# compilation:
-# ------------
-#
-# module purge
-# module load 17/doas 17/intel-17u1 17/base 17/hdf-netcdf 17/linalg
-# qmake all.pro CONFIG+=hpc
-# make
-#
-# installation:
-# -------------
-# make install <= !!! attention
-#
-# This will install qdoas in /space/hpc-aps/bira/doas/bin_$$QDOAS_VERSION,
+#   CC=/space/hpc-apps/bira/2015a/hdf5-1.8.10-64/bin/h5cc ./configure /
+#     --prefix=/home/thomasd --with-szlib=/home/thomasd /
+#     --enable-install-include
 hpc {
-  LIBS -= -lgslcblas
-  LIBS += -latlas -lgfortran
-  INSTALL_PREFIX = /space/hpc-apps/bira/doas
-  QDOASLIBS = $$INSTALL_PREFIX/lib /space/hpc-apps/bira/17/base/lib64 /space/hpc-apps/bira/17/linalg/lib64 /space/hpc-apps/bira/17/hdf-netcdf/lib64 /space/hpc-apps/bira/17/doas/lib
-  QMAKE_LIBDIR += $$QDOASLIBS
-  QMAKE_RPATHDIR += $$QDOASLIBS
+  LIBS += -lirc -lsvml
+
+  INSTALL_PREFIX = $$(HOME)
+  INCLUDEPATH += $$INSTALL_PREFIX/include
+
+  INCLUDEPATH +=/space/hpc-apps/bira/2015a/hdf-eos5-1.14-hdf5-1.8.10/include64
+
+  QMAKE_LIBDIR += /space/hpc-apps/bira/2015a/hdf-eos5-1.14-hdf5-1.8.10/lib64
+  QMAKE_RPATHDIR += /space/hpc-apps/bira/2015a/hdf-eos5-1.14-hdf5-1.8.10/lib64
+  QMAKE_LIBDIR += $$INSTALL_PREFIX/lib /sw/sdev/intel/parallel_studio_xe_2015_update_3-pguyan/composer_xe_2015.3.187/compiler/lib/intel64
+  QMAKE_RPATHDIR += $$INSTALL_PREFIX/lib /sw/sdev/intel/parallel_studio_xe_2015_update_3-pguyan/composer_xe_2015.3.187/compiler/lib/intel64
 }
 
 unix {
-  CONFIG += qwt
-
   isEmpty(INSTALL_PREFIX) {
     INSTALL_PREFIX = $$(HOME)
   }
 
   INCLUDEPATH += $$INSTALL_PREFIX/include
-  INCLUDEPATH += $$INSTALL_PREFIX/miniconda3/include/
-  INCLUDEPATH += $$INSTALL_PREFIX/anaconda3/include/
   INCLUDEPATH += $$INSTALL_PREFIX/include/hdf4
   INCLUDEPATH += $$INSTALL_PREFIX/include/qwt
-  INCLUDEPATH += $$INSTALL_PREFIX/hdf5-1.10.1/hdf5/include
-  INCLUDEPATH += /usr/local/qwt-6.1.3/include
-  INCLUDEPATH += /usr/include
-  INCLUDEPATH += /usr/include/hdf4
-  INCLUDEPATH += $$INSTALL_PREFIX/include/linux/
   QMAKE_LIBDIR += $$INSTALL_PREFIX/lib
-  QMAKE_LIBDIR += $$INSTALL_PREFIX/miniconda3/lib
-  QMAKE_LIBDIR += $$INSTALL_PREFIX/hdf5-1.10.1/hdf5/lib
-  QMAKE_LIBDIR += /usr/local/qwt-6.1.3/lib/
-  QMAKE_LIBDIR += /usr/lib/
-}
-
-asan { # use 'CONFIG+=asan' to build with adress sanitizer support
-  QMAKE_CXXFLAGS += -fsanitize=address -fno-omit-frame-pointer
-  QMAKE_CFLAGS += -fsanitize=address -fno-omit-frame-pointer
-  QMAKE_LFLAGS += -fsanitize=address
+  QMAKE_RPATHDIR += $$INSTALL_PREFIX/lib
 }

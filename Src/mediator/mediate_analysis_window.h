@@ -54,6 +54,10 @@ extern "C" {
     double refMinLatitude;
     double refMaxLatitude;
     int refNs;
+    int pixelTypeEast;
+    int pixelTypeCenter;
+    int pixelTypeWest;
+    int pixelTypeBackscan;
     double cloudFractionMin;
     double cloudFractionMax;
     int requireSpectrum;

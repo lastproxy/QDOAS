@@ -1,24 +1,5 @@
 
 //  ----------------------------------------------------------------------------
-//! \addtogroup Format
-//! All the modules to read spectra in the various formats supported by QDOAS
-//! should include two functions <format>_Set and <format>_Read to call respectively
-//! from EngineSetFile and EngineReadFile.\n
-//! The function <format>_Set should : \n
-//!    \li set the number of records (pEngineContext->recordNumber)
-//!    \li according to the file format, initialize some variables or buffers
-//! @{
-//!
-//! \file      engine.c
-//! \brief     Starts the engine
-//! \details
-//! \authors   Ian Price
-//! \date
-//! \todo
-//! \copyright QDOAS is distributed under GNU General Public License
-//!
-//! @}
-//  ----------------------------------------------------------------------------
 //
 //  Product/Project   :  QDOAS
 //  Module purpose    :  ENGINE CONTEXT
@@ -84,14 +65,10 @@
 #include "stdfunc.h"
 #include "zenithal.h"
 #include "output.h"
-#include "frm4doas_read.h"
-#include "gome2_read.h"
-#include "scia-read.h"
 #include "tropomi_read.h"
-#include "omps_read.h"
+
 #include "omi_read.h"
 #include "gdp_bin_read.h"
-#include "gome1netcdf_read.h"
 #include "apex_read.h"
 #include "mfc-read.h"
 #include "spectrum_files.h"
@@ -150,12 +127,6 @@ void EngineResetContext(ENGINE_CONTEXT *pEngineContext)
     MEMORY_ReleaseDVector("EngineResetContext ","offset",pBuffers->offset,0);
    if (pBuffers->scanRef!=NULL)
     MEMORY_ReleaseDVector("EngineResetContext ","scanRef",pBuffers->scanRef,0);
-   if (pBuffers->scanIndexes!=NULL)
-    MEMORY_ReleaseBuffer("EngineResetContext ","scanIndexes",pBuffers->scanIndexes);
-   if (pBuffers->zenithBeforeIndexes!=NULL)
-    MEMORY_ReleaseBuffer("EngineResetContext ","zenithBeforeIndexes",pBuffers->zenithBeforeIndexes);
-   if (pBuffers->zenithAfterIndexes!=NULL)
-    MEMORY_ReleaseBuffer("EngineResetContext ","zenithAfterIndexes",pBuffers->zenithAfterIndexes);
    if (pBuffers->specMaxx!=NULL)
     MEMORY_ReleaseDVector("EngineResetContext ","specMaxx",pBuffers->specMaxx,0);
    if (pBuffers->specMax!=NULL)
@@ -241,12 +212,6 @@ RC EngineCopyContext(ENGINE_CONTEXT *pEngineContextTarget,ENGINE_CONTEXT *pEngin
         ((pBuffersTarget->offset=(double *)MEMORY_AllocDVector("EngineCopyContext","offset",0,max_ndet-1))==NULL)) ||
        ((pBuffersSource->scanRef!=NULL) && (pBuffersTarget->scanRef==NULL) &&
         ((pBuffersTarget->scanRef=(double *)MEMORY_AllocDVector("EngineCopyContext","scanRef",0,max_ndet-1))==NULL)) ||
-       ((pBuffersSource->scanIndexes!=NULL) && (pBuffersTarget->scanIndexes==NULL) &&
-        ((pBuffersTarget->scanIndexes=(INDEX *)MEMORY_AllocBuffer("EngineCopyContext","scanIndexes",pEngineContextSource->recordNumber,sizeof(INDEX),0,MEMORY_TYPE_INT))==NULL)) ||
-       ((pBuffersSource->zenithBeforeIndexes!=NULL) && (pBuffersTarget->zenithBeforeIndexes==NULL) &&
-        ((pBuffersTarget->zenithBeforeIndexes=(INDEX *)MEMORY_AllocBuffer("EngineCopyContext","zenithBeforeIndexes",pEngineContextSource->recordNumber,sizeof(INDEX),0,MEMORY_TYPE_INT))==NULL)) ||
-       ((pBuffersSource->zenithAfterIndexes!=NULL) && (pBuffersTarget->zenithAfterIndexes==NULL) &&
-        ((pBuffersTarget->zenithAfterIndexes=(INDEX *)MEMORY_AllocBuffer("EngineCopyContext","zenithAfterIndexes",pEngineContextSource->recordNumber,sizeof(INDEX),0,MEMORY_TYPE_INT))==NULL)) ||
        ((pBuffersSource->varPix!=NULL) && (pBuffersTarget->varPix==NULL) &&
         ((pBuffersTarget->varPix=(double *)MEMORY_AllocDVector("EngineCopyContext","varPix",0,max_ndet-1))==NULL)) ||
        ((pBuffersSource->specMaxx!=NULL) && (pBuffersTarget->specMaxx==NULL) &&
@@ -289,12 +254,6 @@ RC EngineCopyContext(ENGINE_CONTEXT *pEngineContextTarget,ENGINE_CONTEXT *pEngin
       memcpy(pBuffersTarget->offset,pBuffersSource->offset,sizeof(double)*max_ndet);
      if ((pBuffersTarget->scanRef!=NULL) && (pBuffersSource->scanRef!=NULL))
       memcpy(pBuffersTarget->scanRef,pBuffersSource->scanRef,sizeof(double)*max_ndet);
-     if ((pBuffersTarget->scanIndexes!=NULL) && (pBuffersSource->scanIndexes!=NULL))
-      memcpy(pBuffersTarget->scanIndexes,pBuffersSource->scanIndexes,sizeof(INDEX)*pEngineContextSource->recordNumber);
-     if ((pBuffersTarget->zenithBeforeIndexes!=NULL) && (pBuffersSource->zenithBeforeIndexes!=NULL))
-      memcpy(pBuffersTarget->zenithBeforeIndexes,pBuffersSource->zenithBeforeIndexes,sizeof(INDEX)*pEngineContextSource->recordNumber);
-     if ((pBuffersTarget->zenithAfterIndexes!=NULL) && (pBuffersSource->zenithAfterIndexes!=NULL))
-      memcpy(pBuffersTarget->zenithAfterIndexes,pBuffersSource->zenithAfterIndexes,sizeof(INDEX)*pEngineContextSource->recordNumber);
      if ((pBuffersTarget->varPix!=NULL) && (pBuffersSource->varPix!=NULL))
       memcpy(pBuffersTarget->varPix,pBuffersSource->varPix,sizeof(double)*max_ndet);
      if ((pBuffersTarget->specMaxx!=NULL) && (pBuffersSource->specMaxx!=NULL))
@@ -387,27 +346,23 @@ RC EngineSetProject(ENGINE_CONTEXT *pEngineContext)
    pRecord=&pEngineContext->recordInfo;
 
    pEngineContext->lastRefRecord=0;
-   pEngineContext->n_crosstrack=1;
    pRecord->nSpecMax=0;
    pRecord->i_crosstrack=0;
-
-   // MAXDOAS ONLY
-
-   pRecord->maxdoas.scanIndex=ITEM_NONE;
-   pRecord->maxdoas.zenithBeforeIndex=ITEM_NONE;
-   pRecord->maxdoas.zenithAfterIndex=ITEM_NONE;
-   pRecord->maxdoas.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_ZENITH;
 
    pEngineContext->mfcDoasisFlag=((pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_MFC) ||
                                   (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_MFC_STD))?1:0;
 
-   pEngineContext->satelliteFlag=is_satellite(pInstrumental->readOutFormat);
-   pEngineContext->maxdoasFlag=is_maxdoas(pInstrumental->readOutFormat);
+   pEngineContext->satelliteFlag=((pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_GDP_ASCII) ||
+                                  (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_GDP_BIN) ||
+                                  (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_SCIA_PDS) ||
+                                  (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_OMI) ||
+                                  (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_TROPOMI) ||
+                                  (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_GOME2))?1:0;
 
    ENGINE_localNoon=(double)12.;
 
-   THRD_localShift=(double)(((indexSite=SITES_GetIndex(pInstrumental->observationSite))!=ITEM_NONE)?
-                         SITES_itemList[indexSite].longitude/15.:0.); // 24./360.
+   THRD_localShift=(int)(((indexSite=SITES_GetIndex(pInstrumental->observationSite))!=ITEM_NONE)?
+                         floor(SITES_itemList[indexSite].longitude/15.):0); // 24./360.
 
    rc=ERROR_ID_NO;
 
@@ -435,10 +390,18 @@ RC EngineSetProject(ENGINE_CONTEXT *pEngineContext)
 
         (((pBuffers->specMaxx=(double *)MEMORY_AllocDVector(__func__,"specMaxx",0,MAX_SPECMAX-1))==NULL) ||
         ((pBuffers->specMax=(double *)MEMORY_AllocDVector(__func__,"specMax",0,MAX_SPECMAX-1))==NULL))) ||
-        ((pEngineContext->satelliteFlag || (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF)) &&
-        ((pBuffers->sigmaSpec=MEMORY_AllocDVector(__func__,"sigmaSpec",0,max_ndet-1))==NULL ||
-         (pBuffers->lambda_irrad=MEMORY_AllocDVector(__func__,"lambda_irrad",0,max_ndet-1))==NULL ||
-         (pBuffers->irrad=MEMORY_AllocDVector(__func__,"irrad",0,max_ndet-1))==NULL
+
+
+       ( ( pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_GDP_ASCII ||
+           pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_GDP_BIN ||
+           pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_SCIA_PDS ||
+           pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_OMI ||
+           pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_TROPOMI ||
+           pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_GOME2 ) &&
+
+         ( (pBuffers->sigmaSpec=MEMORY_AllocDVector(__func__,"sigmaSpec",0,max_ndet-1))==NULL ||
+           (pBuffers->lambda_irrad=MEMORY_AllocDVector(__func__,"lambda_irrad",0,max_ndet-1))==NULL ||
+           (pBuffers->irrad=MEMORY_AllocDVector(__func__,"irrad",0,max_ndet-1))==NULL
            )
          ) ||
 
@@ -543,7 +506,7 @@ RC EngineSetProject(ENGINE_CONTEXT *pEngineContext)
              }
 
            if (!SPLINE_Deriv2(lambdaInstr,instrFunction,instrDeriv2,max_ndet,__func__))
-            rc=SPLINE_Vector(lambdaInstr,instrFunction,instrDeriv2,max_ndet,pBuffers->lambda,pBuffers->instrFunction,max_ndet,SPLINE_CUBIC);
+            rc=SPLINE_Vector(lambdaInstr,instrFunction,instrDeriv2,max_ndet,pBuffers->lambda,pBuffers->instrFunction,max_ndet,SPLINE_CUBIC,__func__);
           }
 
          if (fp!=NULL)
@@ -656,10 +619,8 @@ RC EngineSetFile(ENGINE_CONTEXT *pEngineContext,const char *fileName,void *respo
 
    if ((pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_OMI) &&
        (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_TROPOMI) &&
-       (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_OMPS) &&
        (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_SCIA_PDS) &&
        (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_GOME2) &&
-       (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_GOME1_NETCDF) &&
        ((pFile->specFp=fopen(pEngineContext->fileInfo.fileName,"rb"))==NULL))
 
     rc=ERROR_SetLast("EngineSetFile",ERROR_TYPE_WARNING,ERROR_ID_FILE_NOT_FOUND,pFile->fileName);
@@ -742,20 +703,12 @@ RC EngineSetFile(ENGINE_CONTEXT *pEngineContext,const char *fileName,void *respo
      case PRJCT_INSTR_FORMAT_OMI :
        rc=OMI_Set(pEngineContext);
        if(!rc)
-         rc = OMI_prepare_automatic_reference(pEngineContext, responseHandle);
+         rc = OMI_load_analysis(pEngineContext, responseHandle);
        break;
        // ---------------------------------------------------------------------------
      case PRJCT_INSTR_FORMAT_TROPOMI:
        rc=tropomi_set(pEngineContext);
-       if (!rc && pEngineContext->analysisRef.refAuto) {
-         rc = tropomi_prepare_automatic_reference(pEngineContext, responseHandle);
-       }
-       break;
-       // ---------------------------------------------------------------------------
-     case PRJCT_INSTR_FORMAT_OMPS :
-       rc=OMPS_set(pEngineContext);
-       if (!rc)
-         rc=OMPS_load_analysis(pEngineContext, responseHandle);
+       // todo: OMI_load_analysis
        break;
        // ---------------------------------------------------------------------------
      case PRJCT_INSTR_FORMAT_CCD_EEV :
@@ -770,13 +723,13 @@ RC EngineSetFile(ENGINE_CONTEXT *pEngineContext,const char *fileName,void *respo
        rc=SetCCD(pEngineContext,pFile->specFp,1);
        break;
        // ---------------------------------------------------------------------------
-     case PRJCT_INSTR_FORMAT_GDP_BIN :
-       if (!(rc=GDP_BIN_Set(pEngineContext) ) &&  (THRD_id!=THREAD_TYPE_SPECTRA) && (THRD_id!=THREAD_TYPE_EXPORT) && (THRD_id!=THREAD_TYPE_NONE))
-        rc=GDP_BIN_LoadAnalysis(pEngineContext,responseHandle);
+     case PRJCT_INSTR_FORMAT_GDP_ASCII :
+       rc=GDP_ASC_Set(pEngineContext,pFile->specFp);
        break;
        // ---------------------------------------------------------------------------
-     case PRJCT_INSTR_FORMAT_GOME1_NETCDF :
-       rc=GOME1NETCDF_Set(pEngineContext);
+     case PRJCT_INSTR_FORMAT_GDP_BIN :
+       if (!(rc=GDP_BIN_Set(pEngineContext,pFile->specFp)) &&  (THRD_id!=THREAD_TYPE_SPECTRA) && (THRD_id!=THREAD_TYPE_EXPORT) && (THRD_id!=THREAD_TYPE_NONE))
+        rc=GDP_BIN_LoadAnalysis(pEngineContext,pEngineContext->fileInfo.specFp,responseHandle);
        break;
        // ---------------------------------------------------------------------------
      case PRJCT_INSTR_FORMAT_SCIA_PDS :
@@ -794,18 +747,11 @@ RC EngineSetFile(ENGINE_CONTEXT *pEngineContext,const char *fileName,void *respo
         rc=MKZY_LoadAnalysis(pEngineContext,responseHandle);
        break;
        // ---------------------------------------------------------------------------
-     case PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF :
-       rc=FRM4DOAS_Set(pEngineContext);
-       break;
-       // ---------------------------------------------------------------------------
      default :
        rc=ERROR_ID_FILE_FORMAT;
        break;
        // ---------------------------------------------------------------------------
      }
-
-   if (!pEngineContext->n_alongtrack && ANALYSE_swathSize)
-    pEngineContext->n_alongtrack=pEngineContext->recordNumber/ANALYSE_swathSize;
 
    // Return
 
@@ -833,6 +779,7 @@ RC EngineReadFile(ENGINE_CONTEXT *pEngineContext,int indexRecord,int dateFlag,in
    INDEX indexSite;
    OBSERVATION_SITE *pSite;
    double longit,latit;
+   int rc;                                                                       // Return code
 
    // Initializations
 
@@ -855,21 +802,14 @@ RC EngineReadFile(ENGINE_CONTEXT *pEngineContext,int indexRecord,int dateFlag,in
    pRecord->longitude=0.;
    pRecord->latitude=0.;
    pRecord->altitude=0.;
-   pRecord->satellite.cloud_fraction=(double)0.;
-   pRecord->satellite.cloud_top_pressure=(double)0.;
+   pRecord->cloudFraction=(double)0.;
+   pRecord->cloudTopPressure=(double)0.;
 
    pRecord->aMoon=0.;
    pRecord->hMoon=0.;
    pRecord->fracMoon=0.;
-   pRecord->rc=ERROR_ID_NO;
-
-   pRecord->maxdoas.scanIndex=ITEM_NONE;
-   pRecord->maxdoas.zenithBeforeIndex=ITEM_NONE;
-   pRecord->maxdoas.zenithAfterIndex=ITEM_NONE;
-   pRecord->maxdoas.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_ZENITH;
 
    pEngineContext->indexRecord=indexRecord;  // !!! for the output
-   pRecord->i_alongtrack=(indexRecord-1)/ANALYSE_swathSize;
 
    switch((int)pEngineContext->project.instrumental.readOutFormat)
     {
@@ -877,143 +817,132 @@ RC EngineReadFile(ENGINE_CONTEXT *pEngineContext,int indexRecord,int dateFlag,in
     case PRJCT_INSTR_FORMAT_ASCII :
       if ((pEngineContext->project.instrumental.ascii.format==PRJCT_INSTR_ASCII_FORMAT_LINE)  ||
           (pEngineContext->project.instrumental.ascii.format==PRJCT_INSTR_ASCII_FORMAT_COLUMN))
-       pRecord->rc=ASCII_Read(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+       rc=ASCII_Read(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       else
-       pRecord->rc=ASCII_QDOAS_Read(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+       rc=ASCII_QDOAS_Read(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_ACTON :
-      pRecord->rc=ReliActon_Logger(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp);
+      rc=ReliActon_Logger(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_PDASI_EASOE :
-      pRecord->rc=ReliEASOE(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp);
+      rc=ReliEASOE(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_OCEAN_OPTICS :
-      pRecord->rc=ReliOceanOptics(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+      rc=ReliOceanOptics(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_PDAEGG :
-      pRecord->rc=ReliPDA_EGG(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp,1);
+      rc=ReliPDA_EGG(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp,1);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_PDAEGG_OLD :
-      pRecord->rc=ReliPDA_EGG(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp,0);
+      rc=ReliPDA_EGG(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp,0);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_LOGGER :
-      pRecord->rc=ReliPDA_EGG_Logger(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+      rc=ReliPDA_EGG_Logger(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_SAOZ_VIS :
-      pRecord->rc=ReliSAOZ(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp);
+      rc=ReliSAOZ(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_SAOZ_EFM :
-      pRecord->rc=ReliSAOZEfm(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+      rc=ReliSAOZEfm(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_BIRA_MOBILE :
     case PRJCT_INSTR_FORMAT_BIRA_AIRBORNE :
-      pRecord->rc=AIRBORNE_Read(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+      rc=AIRBORNE_Read(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_APEX :
-      pRecord->rc=apex_read(pEngineContext,indexRecord);
+      rc=apex_read(pEngineContext,indexRecord);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_MFC :
-      pRecord->rc=ReliMFC(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pEngineContext->project.instrumental.mfc.mfcMaskSpec);
+      rc=ReliMFC(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pEngineContext->project.instrumental.mfc.mfcMaskSpec);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_MFC_STD :
-      pRecord->rc=ReliMFCStd(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+      rc=ReliMFCStd(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_MFC_BIRA :
-      pRecord->rc=MFCBIRA_Reli(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+      rc=MFCBIRA_Reli(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_RASAS :
-      pRecord->rc=ReliRAS(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+      rc=ReliRAS(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_UOFT :
-      pRecord->rc=ReliUofT(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+      rc=ReliUofT(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_NOAA :
-      pRecord->rc=ReliNOAA(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+      rc=ReliNOAA(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_OMI :
-      pRecord->rc=OMI_read_earth(pEngineContext,indexRecord);
+      rc=OMI_read_earth(pEngineContext,indexRecord);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_TROPOMI :
-      pRecord->rc=tropomi_read(pEngineContext,indexRecord);
-      break;
-      // ---------------------------------------------------------------------------
-    case PRJCT_INSTR_FORMAT_OMPS :
-      pRecord->rc=OMPS_read(pEngineContext,indexRecord);
+      rc=tropomi_read(pEngineContext,indexRecord);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_CCD_EEV :
-      pRecord->rc=ReliCCD_EEV(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->darkFp);
+      rc=ReliCCD_EEV(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->darkFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_CCD_HA_94 :
-      pRecord->rc=ReliCCD(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp);
+      rc=ReliCCD(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_CCD_OHP_96 :
-      pRecord->rc=ReliCCDTrack(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp);
+      rc=ReliCCDTrack(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp,pFile->namesFp,pFile->darkFp);
+      break;
+      // ---------------------------------------------------------------------------
+    case PRJCT_INSTR_FORMAT_GDP_ASCII :
+      rc=GDP_ASC_Read(pEngineContext,indexRecord,dateFlag,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_GDP_BIN :
-      pRecord->rc=GDP_BIN_Read(pEngineContext,indexRecord,pFile->specFp);
-      break;
-      // ---------------------------------------------------------------------------
-    case PRJCT_INSTR_FORMAT_GOME1_NETCDF :
-      pRecord->rc=GOME1NETCDF_Read(pEngineContext,indexRecord,ITEM_NONE);
+      rc=GDP_BIN_Read(pEngineContext,indexRecord,pFile->specFp,GDP_BIN_currentFileIndex);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_SCIA_PDS :
-      pRecord->rc=SCIA_ReadPDS(pEngineContext,indexRecord);
+      rc=SCIA_ReadPDS(pEngineContext,indexRecord);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_GOME2 :
-      pRecord->rc=GOME2_Read(pEngineContext,indexRecord,ITEM_NONE);
+      rc=GOME2_Read(pEngineContext,indexRecord,ITEM_NONE);
       break;
       // ---------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_MKZY :
-      pRecord->rc=MKZY_Read(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
+      rc=MKZY_Reli(pEngineContext,indexRecord,dateFlag,localCalDay,pFile->specFp);
       break;
       // ---------------------------------------------------------------------------
-     case PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF :
-       pRecord->rc=FRM4DOAS_Read(pEngineContext,indexRecord,dateFlag,localCalDay); // do not need specFp because the file is open with netCDF
-       break;
-       // ---------------------------------------------------------------------------
     default :
-      pRecord->rc=ERROR_ID_FILE_BAD_FORMAT;
+      rc=ERROR_ID_FILE_BAD_FORMAT;
       break;
       // ---------------------------------------------------------------------------
     }
 
-   if (pRecord->rc)
-     return pRecord->rc;
+   if (rc)
+     return rc;
 
-   int i_crosstrack = (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_GOME1_NETCDF) ?
-                      (indexRecord - 1) % ANALYSE_swathSize :
-                      pEngineContext->recordInfo.gome.pixelType;
-
+   int i_crosstrack = (indexRecord - 1) % ANALYSE_swathSize;
    const int n_wavel = NDET[i_crosstrack];
 
-   pRecord->rc=THRD_SpectrumCorrection(pEngineContext,pEngineContext->buffers.spectrum,n_wavel);
+   rc=THRD_SpectrumCorrection(pEngineContext,pEngineContext->buffers.spectrum,n_wavel);
 
-   if (pRecord->rc)
-     return pRecord->rc;
+   if (rc)
+     return rc;
 
    pEngineContext->indexRecord=indexRecord;
    if (pRecord->oldZm<(double)0.)
@@ -1035,7 +964,7 @@ RC EngineReadFile(ENGINE_CONTEXT *pEngineContext,int indexRecord,int dateFlag,in
      pRecord->Zm=(pRecord->Tm!=(double)0.)?ZEN_FNTdiz(ZEN_FNCrtjul(&pRecord->Tm),&longit,&latit,&pRecord->Azimuth):(double)-1.;
    }
 
-   return pRecord->rc;
+   return rc;
  }
 
 // -----------------------------------------------------------------------------
@@ -1078,40 +1007,24 @@ RC EngineRequestBeginBrowseSpectra(ENGINE_CONTEXT *pEngineContext,const char *sp
        pEngineContext->currentRecord=1;
      }
 
-   // MFC measurements : allocate a buffer for files only for the automatic selection of the reference or to assign a scan index
-
-   if (pEngineContext->mfcDoasisFlag && resetFlag &&
-      (pEngineContext->maxdoasScanIndexFlag || ((THRD_id==THREAD_TYPE_ANALYSIS) && pEngineContext->analysisRef.refAuto)) &&
-      (MFC_AllocFiles(pEngineContext)!=ERROR_ID_NO))
-
-    rc=ERROR_ID_ALLOC;
-
    // For ground-based measurements, allocate a buffer for the indexes of selected reference spectra (automatic reference selection mode)
 
-   else if (resetFlag && (THRD_id==THREAD_TYPE_ANALYSIS) && pEngineContext->analysisRef.refAuto && !pEngineContext->satelliteFlag && pEngineContext->recordNumber) {
-     if (!(recordNumber=(pEngineContext->mfcDoasisFlag)?pEngineContext->recordInfo.mfcDoasis.nFiles:pEngineContext->recordNumber) ||
-         ((pRef->refIndexes=(int *)MEMORY_AllocBuffer("EngineRequestBeginBrowseSpectra","refIndexes",recordNumber,sizeof(int),0,MEMORY_TYPE_INT))==NULL) ||
-         ((pRef->zmList=(double *)MEMORY_AllocDVector("EngineRequestBeginBrowseSpectra","zmList",0,recordNumber-1))==NULL) ||
-         ((pRef->timeDec=(double *)MEMORY_AllocDVector("EngineRequestBeginBrowseSpectra","timeDec",0,recordNumber-1))==NULL)) {
+   if (resetFlag && (THRD_id==THREAD_TYPE_ANALYSIS) && pEngineContext->analysisRef.refAuto && !pEngineContext->satelliteFlag && pEngineContext->recordNumber) {
+     if (   (pEngineContext->mfcDoasisFlag && (MFC_AllocFiles(pEngineContext)!=ERROR_ID_NO)) ||
+            !(recordNumber=(pEngineContext->mfcDoasisFlag)?pEngineContext->recordInfo.mfcDoasis.nFiles:pEngineContext->recordNumber) ||
+            ((pRef->refIndexes=(int *)MEMORY_AllocBuffer("EngineRequestBeginBrowseSpectra","refIndexes",recordNumber,sizeof(int),0,MEMORY_TYPE_INT))==NULL) ||
+            ((pRef->zmList=(double *)MEMORY_AllocDVector("EngineRequestBeginBrowseSpectra","zmList",0,recordNumber-1))==NULL) ||
+            ((pRef->timeDec=(double *)MEMORY_AllocDVector("EngineRequestBeginBrowseSpectra","timeDec",0,recordNumber-1))==NULL)) {
 
        rc=ERROR_ID_ALLOC;
 
      } else {
        pRef->nRef=0;
        pRef->zmMinIndex=
-       pRef->zmMaxIndex=
-       pRef->zenBefIndex=
-       pRef->zenAftIndex=
-       pRef->indexScanBefore=
-       pRef->indexScanAfter=ITEM_NONE;
+         pRef->indexScanBefore=
+         pRef->indexScanAfter=ITEM_NONE;
      }
    }
-
-   // For MAXDOAS measurements, calculate the scan indexes (as this operation takes time, it is executed only if it is requested
-   // from the Display or Output pages of project properties of it is a selected field to export)
-   // 08/02/2018 : finally, I decide not to calculate the scan index in QDOAS but with external Python routine
-   // if (!rc && resetFlag && is_maxdoas(pEngineContext->project.instrumental.readOutFormat) && pEngineContext->maxdoasScanIndexFlag)
-   // rc=EngineBuildScanIndex(pEngineContext);
 
    // retain calibration plot in case it is already there (e.g. for OMI)
    if (ANALYSE_plotKurucz)
@@ -1163,15 +1076,15 @@ RC EngineRequestEndBrowseSpectra(ENGINE_CONTEXT *pEngineContext)
        // Release buffers used for automatic reference
 
        if (pRef->refIndexes!=NULL)
-        MEMORY_ReleaseBuffer(__func__,"refIndexes",pRef->refIndexes);
+        MEMORY_ReleaseBuffer("EngineRequestEndBrowseSpectra","refIndexes",pRef->refIndexes);
        pRef->refIndexes=NULL;
 
        if (pRef->zmList!=NULL)
-        MEMORY_ReleaseDVector(__func__,"zmList",pRef->zmList,0);
+        MEMORY_ReleaseDVector("EngineRequestEndBrowseSpectra","zmList",pRef->zmList,0);
        pRef->zmList=NULL;
 
        if (pRef->timeDec!=NULL)
-        MEMORY_ReleaseDVector(__func__,"timeDec",pRef->timeDec,0);
+        MEMORY_ReleaseDVector("EngineRequestEndBrowseSpectra","timeDec",pRef->timeDec,0);
        pRef->timeDec=NULL;
       }
     }
@@ -1211,12 +1124,11 @@ RC EngineEndCurrentSession(ENGINE_CONTEXT *pEngineContext)
 
      // Release other allocated buffers
 
+     GDP_ASC_ReleaseBuffers();
      GDP_BIN_ReleaseBuffers();
      GOME2_ReleaseBuffers();
      OMI_ReleaseBuffers();
      tropomi_cleanup();
-     FRM4DOAS_Cleanup();
-     GOME1NETCDF_Cleanup();
      SCIA_ReleaseBuffers(pEngineContext->project.instrumental.readOutFormat);
      apex_clean();
 
@@ -1312,173 +1224,6 @@ RC EngineDestroyContext(ENGINE_CONTEXT *pEngineContext)
 // AUTOMATIC SEARCH OF THE REFERENCE SPECTRUM
 // ==========================================
 
-double scanTimeInterval=900.;
-
-// -----------------------------------------------------------------------------
-// FUNCTION      EngineBuildScanIndex
-// -----------------------------------------------------------------------------
-// PURPOSE       For MAXDOAS measurements, determine the scan index of all
-//               records in the current file.  This function is called from
-//               EngineSetFile i.e. at the file opening but before browsing
-//               MAXDOAS files.
-//
-// INPUT         pEngineContext     pointer to the engine context
-//
-// RETURN        0 in case of success; the code of the error otherwise
-// -----------------------------------------------------------------------------
-
-RC EngineBuildScanIndex(ENGINE_CONTEXT *pEngineContext)
- {
-  // Declarations
-
-  BUFFERS *pBuffers;                                                            // pointer to the buffers part of the engine context
-  RECORD_INFO *pRecord;                                                         // pointer to the record information part of the engine context
-  MFC_DOASIS *pMfc;                                                             // pointer to MFC structure
-  char   fileName[MAX_STR_LEN+1];                                               // backup of the current file name (useful for MFC format)
-  INDEX *scanIndexes;                                                           // substitution variable for the scanIndexes buffer in the engine context
-  double lastElevationAngle,                                                    // elevation angle of the last off axis measurement
-         lastTime,                                                              // time of the last measurement
-         tmLocal;                                                               // number of seconds of the current record
-  int indexRecord;                                                              // browse records in the current file
-  int scanIndex;                                                                // current scan index
-  int lastMeasurementType,                                                      // measurement type of the last browsed measurement
-      lastZenith,                                                               // index of the last zenith measurement
-      recordNumber;                                                             // the number of records to read
-
-  int upFlag=-1;                                                                // -1 : initial value that means no measurement browsed yet;
-                                                                                // 0 if the elevation angles of off axis measurement are decreasing;
-                                                                                // 1 if the elevation angles of off axis measurement are increasing;
-
-  RC rc;                                                                        // Return code
-
-  // Initializations
-
-  pBuffers=&pEngineContext->buffers;
-  pRecord=&pEngineContext->recordInfo;
-  pMfc=&pEngineContext->recordInfo.mfcDoasis;
-  lastElevationAngle=(double)-99.;
-  lastTime=(double)-999.;
-  lastZenith=ITEM_NONE;
-  scanIndex=ITEM_NONE;
-  lastMeasurementType=ITEM_NONE;
-  recordNumber=(pEngineContext->mfcDoasisFlag)?pMfc->nFiles:pEngineContext->recordNumber;
-  strcpy(fileName,pEngineContext->fileInfo.fileName);
-  rc=ERROR_ID_NO;
-
-  if (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF)  // for this format, the scan index should be in the file
-   {
-    // Disable temporarily maxdoasScanIndexFlag (useful to avoid unuseful MFC_SearchForCurrentFileIndex)
-
-    pEngineContext->maxdoasScanIndexFlag=0;
-
-
-    // The buffers is released/re-allocated for each new file to read
-    // It is possible to avoid this step by saving the size of the buffer and reallocated it
-    // only if the size of the new file is larger
-
-    if (pBuffers->scanIndexes!=NULL)
-     {
-      MEMORY_ReleaseBuffer("EngineBuildScanIndex","scanIndexes",pBuffers->scanIndexes);
-      pBuffers->scanIndexes=NULL;
-     }
-
-    if (!recordNumber ||
-       ((pBuffers->scanIndexes=(INDEX *)MEMORY_AllocBuffer(__func__,"scanIndexes",recordNumber,sizeof(INDEX),0,MEMORY_TYPE_INT))==NULL))
-
-     rc=ERROR_ID_ALLOC;
-
-    else
-     {
-      scanIndexes=pEngineContext->buffers.scanIndexes;
-
-      // Browse records in the file
-
-      for (indexRecord=0;(indexRecord<recordNumber) && !rc;indexRecord++)
-       {
-        // Default value
-
-        scanIndexes[indexRecord]=ITEM_NONE;
-
-        // For MFC format, get filename
-
-        if (pEngineContext->mfcDoasisFlag)
-         sprintf(pEngineContext->fileInfo.fileName,"%s%c%s",pMfc->filePath,PATH_SEP,&pMfc->fileNames[indexRecord*(DOAS_MAX_PATH_LEN+1)]);
-
-        // Read the next record
-
-        if (!(rc=EngineReadFile(pEngineContext,(!pEngineContext->mfcDoasisFlag)?indexRecord+1:1,0,0)))
-         {
-          // Get the local time of the current record
-
-          tmLocal=pRecord->Tm+THRD_localShift*3600.;
-
-          // Zenith following a off-axis increasing sequence are assigned a scan index
-
-          if (pRecord->maxdoas.measurementType==PRJCT_INSTR_MAXDOAS_TYPE_ZENITH)
-           {
-            lastZenith=indexRecord;
-
-            if ((upFlag==1) &&                                                    // increasing sequence of off axis measurements
-                (lastMeasurementType==PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS) &&        // last measurement was an off-axis one; the current one is a zenith one
-                (tmLocal-lastTime<(double)scanTimeInterval))                      // no more than 15 minutes between the last off axis measurement and the current zenith one
-
-             scanIndexes[indexRecord]=scanIndex;                                  // same scan index as the last off axis measurement
-           }
-
-          // Current record is an off-axis measurement
-
-          if (pRecord->maxdoas.measurementType==PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS)
-           {
-            // if there is more than 15 minutes with the last off-axis measurement, increase the scan index
-
-            if (tmLocal-lastTime>(double)scanTimeInterval)   // 900 sec -> 15 min
-             scanIndex++;
-
-            // use the two first off axis measurements, to determine if the sequences are increasing or decreasing
-
-            else if ((upFlag==-1) && (lastMeasurementType==PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS) && (fabs(pRecord->elevationViewAngle-lastElevationAngle)>EPSILON))
-             upFlag=(pRecord->elevationViewAngle<lastElevationAngle)?0:1;
-
-            // Check discontinuities in elevation angles to increase the scan index
-
-            else if (((upFlag==0) && (pRecord->elevationViewAngle>lastElevationAngle+EPSILON)) ||
-                     ((upFlag==1) && (pRecord->elevationViewAngle<lastElevationAngle-EPSILON)))
-             scanIndex++;
-
-             // For decreasing sequences, the scan index of the last preceding zenith measurement is assigned
-
-            if ((upFlag==0) && (lastZenith!=ITEM_NONE) && (scanIndexes[lastZenith]==ITEM_NONE))
-             scanIndexes[lastZenith]=scanIndex;
-
-            // Update
-
-            scanIndexes[indexRecord]=scanIndex;                                   // the scan index of the current off axis measurement
-            lastElevationAngle=pRecord->elevationViewAngle;                       // keep the elevation angle of the last off axis record
-            lastTime=tmLocal;                                                     // keep the local measurement time of the last off axis record
-           }
-
-          // Update the measurement type of the last record
-
-          lastMeasurementType=pRecord->maxdoas.measurementType;
-         }
-       }
-     }
-
-    // For MFC, restore the original file name
-
-    if (pEngineContext->mfcDoasisFlag)
-     strcpy(pEngineContext->fileInfo.fileName,fileName);
-
-    // Enable maxdoasScanIndexFlag again
-
-    pEngineContext->maxdoasScanIndexFlag=1;
-   }
-
-  // Return
-
-  return rc;
- }
-
 // -----------------------------------------------------------------------------
 // FUNCTION      EngineBuildRefList
 // -----------------------------------------------------------------------------
@@ -1505,7 +1250,6 @@ RC EngineBuildRefList(ENGINE_CONTEXT *pEngineContext)
   int                 NRecord;                                                  // number of hold record
   int                 localCalDay;                                              // local day number
   int                 recordNumber;                                             // the current number of records
-  int                 zenithBeforeIndex,zenithAfterIndex;
   RC                  rc;                                                       // return code
 
   // Make a backup of the buffer part of the engine context
@@ -1514,7 +1258,6 @@ RC EngineBuildRefList(ENGINE_CONTEXT *pEngineContext)
   EngineCopyContext(&ENGINE_contextRef2,pEngineContext);
 
   ENGINE_contextRef.analysisRef.refScan=0;                                      // in order not to have error on zenith sky spectra
-  zenithBeforeIndex=zenithAfterIndex=ITEM_NONE;
 
   // Initializations
 
@@ -1583,11 +1326,6 @@ RC EngineBuildRefList(ENGINE_CONTEXT *pEngineContext)
         rc=ERROR_ID_NO;
         break;
        }
-
-      if ((ENGINE_contextRef.recordInfo.maxdoas.zenithBeforeIndex>zenithBeforeIndex) && (ENGINE_contextRef.recordInfo.maxdoas.zenithBeforeIndex<9999))
-       zenithBeforeIndex=ENGINE_contextRef.recordInfo.maxdoas.zenithBeforeIndex;  // apply only if zenithBeforeIndex==ITEM_NONE ???
-      if ((ENGINE_contextRef.recordInfo.maxdoas.zenithAfterIndex>zenithAfterIndex) && (ENGINE_contextRef.recordInfo.maxdoas.zenithAfterIndex<9999))
-       zenithAfterIndex=ENGINE_contextRef.recordInfo.maxdoas.zenithAfterIndex;
      }
 
     if (!NRecord)
@@ -1599,19 +1337,29 @@ RC EngineBuildRefList(ENGINE_CONTEXT *pEngineContext)
   pEngineContext->analysisRef.nRef=NRecord;
   pEngineContext->analysisRef.zmMinIndex=indexZmMin;
   pEngineContext->analysisRef.zmMaxIndex=indexZmMax;
-  pEngineContext->analysisRef.zenBefIndex=zenithBeforeIndex;
-  pEngineContext->analysisRef.zenAftIndex=zenithAfterIndex;
 
-  // {                                                                                                                                                   // TO CHECK WITH MPI PEOPLE
-  //  FILE *fp;                                                                                                                                          // TO CHECK WITH MPI PEOPLE
-  //  int i;                                                                                                                                             // TO CHECK WITH MPI PEOPLE
-  //  fp=fopen("RefList.dat","w+t");                                                                                                                     // TO CHECK WITH MPI PEOPLE
-  //  fprintf(fp,"List of references : \n");                                                                                                             // TO CHECK WITH MPI PEOPLE
-  //  for (i=0;i<NRecord;i++)                                                                                                                            // TO CHECK WITH MPI PEOPLE
-  //   fprintf(fp,"%d %g %s\n",indexList[i],ZmList[i],&pEngineContext->recordInfo.mfcDoasis.fileNames[(indexList[i]-1)*(DOAS_MAX_PATH_LEN+1)]);          // TO CHECK WITH MPI PEOPLE
-  //                                                                                                                                                     // TO CHECK WITH MPI PEOPLE
-  //  fclose(fp);                                                                                                                                        // TO CHECK WITH MPI PEOPLE
-  // }                                                                                                                                                   // TO CHECK WITH MPI PEOPLE
+  //  {                                                                                                                                                   // TO CHECK WITH MPI PEOPLE
+  //   FILE *fp;                                                                                                                                          // TO CHECK WITH MPI PEOPLE
+  //   int i;                                                                                                                                             // TO CHECK WITH MPI PEOPLE
+  //   fp=fopen("RefList.dat","w+t");                                                                                                                     // TO CHECK WITH MPI PEOPLE
+  //   fprintf(fp,"List of references : \n");                                                                                                             // TO CHECK WITH MPI PEOPLE
+  //   for (i=0;i<NRecord;i++)                                                                                                                            // TO CHECK WITH MPI PEOPLE
+  //    fprintf(fp,"%d %g %s\n",indexList[i],ZmList[i],&pEngineContext->recordInfo.mfcDoasis.fileNames[(indexList[i]-1)*(DOAS_MAX_PATH_LEN+1)]);          // TO CHECK WITH MPI PEOPLE
+  //                                                                                                                                                      // TO CHECK WITH MPI PEOPLE
+  //   fclose(fp);                                                                                                                                        // TO CHECK WITH MPI PEOPLE
+  //  }                                                                                                                                                   // TO CHECK WITH MPI PEOPLE
+
+
+  // {
+  //  FILE *fp;
+  //  int i;
+  //  fp=fopen("RefList.dat","w+t");
+  //  fprintf(fp,"List of references : \n");
+  //  for (i=0;i<NRecord;i++)
+  //   fprintf(fp,"%d %g %g\n",indexList[i],ZmList[i],TimeDec[i]);
+  //
+  //  fclose(fp);
+  // }
 
 
   // Copy information from the ref context to the main context
@@ -1667,7 +1415,7 @@ RC EngineSZASetRefIndexes(ENGINE_CONTEXT *pEngineContext,FENO *pTabFeno)
     // No reference spectrum found in SZA range
 
     if (ZmMax<pTabFeno->refSZA-pTabFeno->refSZADelta)
-     rc=ERROR_SetLast("EngineSetRefIndexes",ERROR_TYPE_WARNING,ERROR_ID_NO_REF,"all the day",pEngineContext->fileInfo.fileName);
+     rc=ERROR_SetLast("EngineSetRefIndexesMFC",ERROR_TYPE_WARNING,ERROR_ID_NO_REF,"all the day",pEngineContext->fileInfo.fileName);
 
     // Select record with SZA minimum
 
@@ -1702,18 +1450,18 @@ RC EngineSZASetRefIndexes(ENGINE_CONTEXT *pEngineContext,FENO *pTabFeno)
       // No record found for the morning OR the afternoon
 
       if ((pTabFeno->indexRefMorning==ITEM_NONE) && (pTabFeno->indexRefAfternoon==ITEM_NONE))
-       rc=ERROR_SetLast("EngineSetRefIndexes",ERROR_TYPE_WARNING,ERROR_ID_NO_REF,"all the day",pEngineContext->fileInfo.fileName);
+       rc=ERROR_SetLast("EngineSetRefIndexesMFC",ERROR_TYPE_WARNING,ERROR_ID_NO_REF,"all the day",pEngineContext->fileInfo.fileName);
       else
        {
         if (pTabFeno->indexRefMorning==ITEM_NONE)
          {
-          // rc=ERROR_SetLast("EngineSetRefIndexes",ERROR_TYPE_WARNING,ERROR_ID_NO_REF,"the morning",pEngineContext->fileInfo.fileName);
+          // rc=ERROR_SetLast("EngineSetRefIndexesMFC",ERROR_TYPE_WARNING,ERROR_ID_NO_REF,"the morning",pEngineContext->fileInfo.fileName);
           // Returning an error at this step makes stange behaviours of the program
           pTabFeno->indexRefMorning=pTabFeno->indexRefAfternoon;
          }
         else if (pTabFeno->indexRefAfternoon==ITEM_NONE)
          {
-          // rc=ERROR_SetLast("EngineSetRefIndexes",ERROR_TYPE_WARNING,ERROR_ID_NO_REF,"the afternoon",ENGINE_contextRef.fileInfo.fileName);
+          // rc=ERROR_SetLast("EngineSetRefIndexesMFC",ERROR_TYPE_WARNING,ERROR_ID_NO_REF,"the afternoon",ENGINE_contextRef.fileInfo.fileName);
           // Returning an error at this step makes stange behaviours of the program
           pTabFeno->indexRefAfternoon=pTabFeno->indexRefMorning;
          }
@@ -1752,66 +1500,52 @@ void EngineScanSetRefIndexes(ENGINE_CONTEXT *pEngineContext,INDEX indexRecord)
  	// Declarations
 
  	ANALYSIS_REF *pRef;
- 	RECORD_INFO *pRecordInfo;
  	int *refIndexes,nRef;
  	int indexScanBefore,indexScanAfter,indexScanMin,indexScanMax,indexScanRecord;
 
-
  	// Initializations
 
- 	pRecordInfo=&pEngineContext->recordInfo;
  	pRef=&pEngineContext->analysisRef;
+ 	refIndexes=pRef->refIndexes;
+ 	nRef=pRef->nRef;
 
-  if (pEngineContext->recordInfo.maxdoas.measurementType==PRJCT_INSTR_MAXDOAS_TYPE_ZENITH)
-   pRef->indexScanBefore=pRef->indexScanAfter=ITEM_NONE;
-  else if ((pEngineContext->recordInfo.maxdoas.measurementType!=PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS) ||
-          ((pEngineContext->analysisRef.zenBefIndex==ITEM_NONE) && (pEngineContext->analysisRef.zenAftIndex==ITEM_NONE)))
-   {
- 	  refIndexes=pRef->refIndexes;
- 	  nRef=pRef->nRef;
+ 	indexScanBefore=indexScanAfter=ITEM_NONE;
 
- 	  indexScanBefore=indexScanAfter=ITEM_NONE;
+  // Dichotomic search of the reference spectrum
 
-    // Dichotomic search of the reference spectrum
-
-    if (indexRecord<refIndexes[0])
-     indexScanAfter=refIndexes[0];
-    else if (indexRecord>refIndexes[nRef-1])
-     indexScanBefore=refIndexes[nRef-1];
-    else
-     {
-      indexScanMin=indexScanRecord=0;
-      indexScanMax=nRef;
-
-      // Dichotomic search
-
-      while (indexScanMax-indexScanMin>1)
-       {
-        indexScanRecord=(indexScanMin+indexScanMax)>>1;
-
-        if (refIndexes[indexScanRecord]==indexRecord)
-         indexScanMin=indexScanMax=ITEM_NONE;                                  // the current record is also a zenith (-> in the list of possible reference spectra)
-        else if (refIndexes[indexScanRecord]<indexRecord)
-         indexScanMin=indexScanRecord;
-        else
-         indexScanMax=indexScanRecord;
-       }
-
-      if ((indexScanMin!=ITEM_NONE) && (indexScanMin<nRef) && (refIndexes[indexScanMin]<=indexRecord))
-       indexScanBefore=refIndexes[indexScanMin];
-
-      if ((indexScanMax!=ITEM_NONE) && (indexScanMax<nRef) && (refIndexes[indexScanMax]>=indexRecord))
-       indexScanAfter=refIndexes[indexScanMax];
-     }
-
-    pRef->indexScanBefore=indexScanBefore;
-    pRef->indexScanAfter=indexScanAfter;
-   }
+  if (indexRecord<refIndexes[0])
+   indexScanAfter=refIndexes[0];
+  else if (indexRecord>refIndexes[nRef-1])
+   indexScanBefore=refIndexes[nRef-1];
   else
    {
-    pRef->indexScanBefore=(pRecordInfo->maxdoas.zenithBeforeIndex!=ITEM_NONE)?pRecordInfo->maxdoas.zenithBeforeIndex+1:ITEM_NONE;   // pRef->indexScanBefore -> EngineReadRecord uses 1-based index
-    pRef->indexScanAfter=(pRecordInfo->maxdoas.zenithAfterIndex!=ITEM_NONE)?pRecordInfo->maxdoas.zenithAfterIndex+1:ITEM_NONE;     // pRef->indexScanBefore -> EngineReadRecord uses 1-based index
+    indexScanMin=indexScanRecord=0;
+    indexScanMax=nRef;
+
+    // Dichotomic search
+
+    while (indexScanMax-indexScanMin>1)
+     {
+      indexScanRecord=(indexScanMin+indexScanMax)>>1;
+
+      if (refIndexes[indexScanRecord]==indexRecord)
+       indexScanMin=indexScanMax=ITEM_NONE;                                  // the current record is also a zenith (-> in the list of possible reference spectra)
+      else if (refIndexes[indexScanRecord]<indexRecord)
+       indexScanMin=indexScanRecord;
+      else
+       indexScanMax=indexScanRecord;
+     }
+
+    if ((indexScanMin!=ITEM_NONE) && (indexScanMin<nRef) && (refIndexes[indexScanMin]<=indexRecord))
+     indexScanBefore=refIndexes[indexScanMin];
+
+    if ((indexScanMax!=ITEM_NONE) && (indexScanMax<nRef) && (refIndexes[indexScanMax]>=indexRecord))
+     indexScanAfter=refIndexes[indexScanMax];
    }
+
+  pRef->indexScanBefore=indexScanBefore;
+  pRef->indexScanAfter=indexScanAfter;
+
  }
 
 RC EngineLoadRefMFC(ENGINE_CONTEXT *pEngineContextRef,ENGINE_CONTEXT *pEngineContext,INDEX indexRefRecord)
@@ -1915,12 +1649,8 @@ RC EngineNewRef(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
 
    if (pEngineContext->analysisRef.refScan)
     {
-     if (newref ||
-       ((pRef->indexScanBefore==ITEM_NONE) || (pRef->indexScanAfter==ITEM_NONE)) ||
-        (indexRecord<=pRef->indexScanBefore) ||
-       (((pRef->indexScanAfter!=ITEM_NONE) /* || (pRecord->maxdoas.zenithAfterIndex>0) */) && (indexRecord>=pRef->indexScanAfter)))
-
-      EngineScanSetRefIndexes(pEngineContext,indexRecord);
+    	if (newref || ((pRef->indexScanBefore==ITEM_NONE) && (pRef->indexScanAfter==ITEM_NONE)) || (indexRecord<=pRef->indexScanBefore) || ((pRef->indexScanAfter!=ITEM_NONE) && (indexRecord>=pRef->indexScanAfter)))
+    	 EngineScanSetRefIndexes(pEngineContext,indexRecord);
 
   	  indexScanBefore=pRef->indexScanBefore;
   	  indexScanAfter=pRef->indexScanAfter;
@@ -2075,10 +1805,15 @@ RC EngineNewRef(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
 
            if (indexRefRecord==ITEM_NONE)
             {
+             pTabFeno->indexRefScanBefore=indexScanBefore;
+             pTabFeno->indexRefScanAfter=indexScanAfter;
+
              pTabFeno->Zm2=ENGINE_contextRef2.recordInfo.Zm;
              pTabFeno->Tm2=ENGINE_contextRef2.recordInfo.Tm;
              pTabFeno->TimeDec2=ENGINE_contextRef2.recordInfo.TimeDec;
             }
+           else
+            pTabFeno->indexRefScanBefore=pTabFeno->indexRefScanAfter=ITEM_NONE;
 
            pTabFeno->displayRef=1;
 
@@ -2090,25 +1825,6 @@ RC EngineNewRef(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
 
           pTabFeno->displayRef=1;
         }
-
-       if ((pTabFeno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC) &&
-           (pTabFeno->refMaxdoasSelectionMode!=ANLYS_MAXDOAS_REF_SZA))
-        {
-         pTabFeno->indexRefScanBefore=indexScanBefore;
-         pTabFeno->indexRefScanAfter=indexScanAfter;
-
-         if (indexRefRecord==ITEM_NONE)
-          {
-           pTabFeno->indexRefScanBefore=indexScanBefore;
-           pTabFeno->indexRefScanAfter=indexScanAfter;
-          }
-         else if (indexScanBefore!=ITEM_NONE)
-          pTabFeno->indexRefScanAfter=indexScanBefore;
-         else if (indexScanAfter!=ITEM_NONE)
-          pTabFeno->indexRefScanBefore=indexScanAfter;
-        }
-       else
-        pTabFeno->indexRefScanBefore=pTabFeno->indexRefScanAfter=ITEM_NONE;
 
        if (pEngineContext->project.spectra.displayFitFlag && ((indexRefRecord!=ITEM_NONE) || (indexScanBefore!=ITEM_NONE) || (indexScanAfter!=ITEM_NONE)))
         {
@@ -2182,13 +1898,12 @@ RC EngineNewRef(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
     rc=ANALYSE_AlignReference(pEngineContext,1,responseHandle,0);
 
    if (!rc && useUsamp)
-    rc=ANALYSE_UsampBuild(1,ITEM_NONE,0);
+    rc=ANALYSE_UsampBuild(1,ITEM_NONE);
 
    EndNewRef :
 
    // Return
 
-   pRecord->rc=rc;
-
    return rc;
  }
+

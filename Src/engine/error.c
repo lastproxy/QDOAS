@@ -123,9 +123,8 @@ ERROR_TABLE errorTable[]=
   { ERROR_ID_XS_BAD_WAVELENGTH         , "the cross section '%s' should be defined on the same grid as the reference one when 'None' is selected as Interp/conv action"},
   { ERROR_ID_XS_COLUMNS                , "cross section file for '%s' has %d columns, but %d columns are expected"},
   { ERROR_ID_XS_RING                   , "configuration error for cross section '%s': cross section is configured to use 'convolve Ring', but its input file does not have 4 columns"},
-  { ERROR_ID_XS_FILENAME               , "missing filename for cross section '%s'"},
-  { ERROR_ID_MISSING_INITIAL_CALIB     , "configuration error: no initial wavelength calibration (please provide a calibration file or a reference spectrum)"},
-  { ERROR_ID_REF_SOLAR_IDENTICAL       , "reference spectrum is identical to the solar spectrum used for the calibration, calibration will be bypassed."      },
+  { ERROR_ID_XS_FILENAME                , "missing filename for cross section '%s'"},
+  { ERROR_ID_MISSING_INITIAL_CALIB, "configuration error: no initial wavelength calibration (please provide a calibration file or a reference spectrum)"},
 
   // Debug
 
@@ -186,9 +185,7 @@ ERROR_TABLE errorTable[]=
   { ERROR_ID_FWHM_INCOMPATIBLE_OPTIONS , "Incompatible options (fit of the slit function in Kurucz and fwhm correction)"                                      },
   { ERROR_ID_OUT_OF_RANGE              , "%s is out of %d..%d range"                                                                                          },
   { ERROR_ID_FILE_AUTOMATIC            , "No automatic reference selection can be perform on this type of file"                                               },
-  { ERROR_ID_REFERENCE_SELECTION, "Can't find spectra matching automatic reference criteria%s" },
   { ERROR_ID_NO_REF                    , "No reference spectrum found for %s in file %s"                                                                      },
-  { ERROR_ID_VZA_REF                   , "No reference spectrum matching criteria for VZA bin [%.1f - %.1f]." },
   { ERROR_ID_REF_ALIGNMENT             , "Impossible to align reference spectrum in %s analysis window"                                                       },
   { ERROR_ID_CONVOLUTION               , "Cross section %s is configured to use online convolution, but the project is configured for preconvolved cross sections"},
   { ERROR_ID_NO_RESULT_PREVIOUS_WINDOW , "Cannot use result from previous analysis window for molecule %s in analysis window %s: can't find the same cross section file" },

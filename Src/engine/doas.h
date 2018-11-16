@@ -63,7 +63,7 @@ extern "C" {
 #define MAX_SYMB              150    // maximum number of different symbols in a project
 #define MAX_SPECMAX          5000    // maximum number of items in SpecMax
 
-// NOT USED ANYMORE ? CONFLICT WITH NETCDF #define DIM                    10    // default number of security pixels for border effects
+#define DIM                    10    // default number of security pixels for border effects
 
 #define MAX_KURUCZ_FWHM_PARAM   4    // maximum number of non linear parameters for fitting fwhm with Kurucz
 
@@ -110,23 +110,11 @@ extern PRJCT_USAMP  *pUsamp;
 
 static inline bool is_satellite(enum _prjctInstrFormat format) {
   return (format==PRJCT_INSTR_FORMAT_GDP_BIN ||
-          format==PRJCT_INSTR_FORMAT_GOME1_NETCDF ||
+          format==PRJCT_INSTR_FORMAT_GDP_ASCII ||
           format==PRJCT_INSTR_FORMAT_SCIA_PDS ||
           format==PRJCT_INSTR_FORMAT_OMI ||
-          format==PRJCT_INSTR_FORMAT_OMPS ||
           format==PRJCT_INSTR_FORMAT_TROPOMI ||
           format==PRJCT_INSTR_FORMAT_GOME2);
-}
-
-static inline bool is_maxdoas(enum _prjctInstrFormat format) {
-  return (format==PRJCT_INSTR_FORMAT_ASCII ||                                                   //  0 ASCII
-          format==PRJCT_INSTR_FORMAT_MFC ||                                                     // 12 MFC Heidelberg
-          format==PRJCT_INSTR_FORMAT_MFC_STD ||                                                 // 13 MFC Heidelberg
-          format==PRJCT_INSTR_FORMAT_MFC_BIRA ||                                                // 14 MFC BIRA-IASB
-          format==PRJCT_INSTR_FORMAT_CCD_EEV ||                                                 // 18 CCD EEV
-          format==PRJCT_INSTR_FORMAT_UOFT ||                                                    // 23 University of Toronto
-          format==PRJCT_INSTR_FORMAT_NOAA ||                                                    // 24 NOAA
-          format==PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF);                                          // 34 netCDF format for FRM4DOAS
 }
 
 #if defined(_cplusplus) || defined(__cplusplus)

@@ -65,7 +65,6 @@
 #include <string.h>
 
 #include "engine_context.h"
-#include "engine.h"
 #include "spectrum_files.h"
 #include "winthrd.h"
 #include "vector.h"
@@ -138,16 +137,12 @@ char *ascFieldsNames[PRJCT_RESULTS_MAX]=
   (char *)"",                                                                   // PRJCT_RESULTS_BESTSHIFT,
   (char *)"",                                                                   // PRJCT_RESULTS_REFZM,
   (char *)"",                                                                   // PRJCT_RESULTS_REFNUMBER,
-  (char *)"",                                                                   // PRJCT_RESULTS_REFNUMBER_BEFORE,
-  (char *)"",                                                                   // PRJCT_RESULTS_REFNUMBER_AFTER,
   (char *)"",                                                                   // PRJCT_RESULTS_REFSHIFT,
   (char *)"Pixel Number",                                                       // PRJCT_RESULTS_PIXEL,
   (char *)"Pixel Type",                                                         // PRJCT_RESULTS_PIXEL_TYPE,
   (char *)"Orbit Number",                                                       // PRJCT_RESULTS_ORBIT,
   (char *)"Longitude",                                                          // PRJCT_RESULTS_LONGIT,
   (char *)"Latitude",                                                           // PRJCT_RESULTS_LATIT,
-  (char *)"",                                                                   // PRJCT_RESULTS_LON_CORNERS
-  (char *)"",                                                                   // PRJCT_RESULTS_LAT_CORNERS
   (char *)"Altitude",                                                           // PRJCT_RESULTS_ALTIT,
   (char *)"",                                                                   // PRJCT_RESULTS_COVAR,
   (char *)"",                                                                   // PRJCT_RESULTS_CORR,
@@ -242,11 +237,7 @@ char *ascFieldsNames[PRJCT_RESULTS_MAX]=
   (char *)"Total Acquisition Time",                                             // PRJCT_RESULTS_TOTALACQTIME
   (char *)"lambda",                                                             // PRJCT_RESULTS_LAMBDA,
   (char *)"spectrum",                                                           // PRJCT_RESULTS_SPECTRA,
-  (char *)"filename",                                                           // PRJCT_RESULTS_FILENAME
-  (char *)"Scan index",                                                         // PRJCT_RESULTS_SCANINDEX
-  (char *)"Index zenith before",                                                // PRJCT_RESULTS_ZENITH_BEFORE,
-  (char *)"Index zenith after",                                                 // PRJCT_RESULTS_ZENITH_AFTER,
-  (char *)"Return code"                                                         // PRJCT_RESULTS_RC
+  (char *)"filename"                                                            // PRJCT_RESULTS_FILENAME
  };
 
 enum _ascLineType
@@ -441,7 +432,7 @@ RC ASCII_QDOAS_Set(ENGINE_CONTEXT *pEngineContext,FILE *specFp)
   int recordNumber;
   int headerSize,spectraSize;
   int n_wavel;
-  int startDateFlag,startTimeFlag;
+
   int headerFlag=0;
   int indexField;
   int lineType,oldLineType;
@@ -460,11 +451,8 @@ RC ASCII_QDOAS_Set(ENGINE_CONTEXT *pEngineContext,FILE *specFp)
   asciiLastOffset=ITEM_NONE;
   recordNumber=0;
   spectraSize=0;
-  startDateFlag=0;
-  startTimeFlag=0;
   n_wavel = NDET[0];
 
-  ENGINE_refStartDate=1;
   rc=ERROR_ID_NO;
 
   // Check the file pointer
@@ -487,8 +475,7 @@ RC ASCII_QDOAS_Set(ENGINE_CONTEXT *pEngineContext,FILE *specFp)
         if (lineType!=ASC_LINE_TYPE_SPECTRA)
          sscanf(fileLine,"%[^=]=%[^\n]",keyName,keyValue);
 
-        if ((lineType!=ASC_LINE_TYPE_COMMENT) && (asciiSpectraSize>0) && (asciiSpectraSize<=n_wavel) && (pEngineContext->recordNumber>0) &&
-           ((THRD_id!=THREAD_TYPE_ANALYSIS) || !pEngineContext->analysisRef.refAuto || (startDateFlag && startTimeFlag)))
+        if ((lineType!=ASC_LINE_TYPE_COMMENT) && (asciiSpectraSize>0) && (asciiSpectraSize<=n_wavel) && (pEngineContext->recordNumber>0))
          break;
         else if (lineType==ASC_LINE_TYPE_COMMENT)
          {
@@ -508,37 +495,6 @@ RC ASCII_QDOAS_Set(ENGINE_CONTEXT *pEngineContext,FILE *specFp)
          spectraSize++;
         else if (lineType==ASC_LINE_TYPE_FIELD)
          {
-          if (!startDateFlag && (indexField==PRJCT_RESULTS_DATE))
-           {
-            int day,mon,year;
-            sscanf(fileLine,"%[^=]=%[^\n]",keyName,keyValue);
-
-            if (sscanf(keyValue,"%d/%d/%d",&day,&mon,&year)==3)
-             {
-              pEngineContext->fileInfo.startDate.da_day=(char)day;
-              pEngineContext->fileInfo.startDate.da_mon=(char)mon;
-              pEngineContext->fileInfo.startDate.da_year=year;
-
-              startDateFlag=1;
-             }
-           }
-
-          if (!startTimeFlag && (indexField==PRJCT_RESULTS_TIME))
-           {
-            int hour,minute,sec,millis,n_args;
-            sscanf(fileLine,"%[^=]=%[^\n]",keyName,keyValue);
-
-            if ((n_args=sscanf(keyValue,"%d:%d:%d.%d",&hour,&minute,&sec,&millis))>=3)
-             {
-              pEngineContext->fileInfo.startTime.ti_hour=(unsigned char)hour;
-              pEngineContext->fileInfo.startTime.ti_min=(unsigned char)minute;
-              pEngineContext->fileInfo.startTime.ti_sec=(unsigned char)sec;
-              pEngineContext->fileInfo.startTime.ti_hund=(unsigned char)millis/10;
-
-              startTimeFlag=1;
-             }
-           }
-
           if (!headerSize && (recordNumber<MAX_RECORDS))
            offset[++asciiLastOffset]=oldpos;
 
@@ -584,9 +540,6 @@ RC ASCII_QDOAS_Set(ENGINE_CONTEXT *pEngineContext,FILE *specFp)
 
     if (!asciiSpectraSize && spectraSize)
      asciiSpectraSize=spectraSize;
-
-    if (!recordNumber && spectraSize)
-     recordNumber=1;
 
     if (!pEngineContext->recordNumber && recordNumber)
      pEngineContext->recordNumber=recordNumber;
@@ -818,17 +771,17 @@ RC ASCII_QDOAS_Read(ENGINE_CONTEXT *pEngineContext,int recordNo,int dateFlag,int
           case PRJCT_RESULTS_MEASTYPE :
 
            if (strstr(keyValue,"off")!=NULL)
-            pRecordInfo->maxdoas.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS;
+            pRecordInfo->asc.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS;
            else if ((strstr(keyValue,"sun")!=NULL) || (strstr(keyValue,"ds")!=NULL))
-            pRecordInfo->maxdoas.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_DIRECTSUN;
+            pRecordInfo->asc.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_DIRECTSUN;
            else if ((strstr(keyValue,"moon")!=NULL) || (strstr(keyValue,"dm")!=NULL))
-            pRecordInfo->maxdoas.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_MOON;
+            pRecordInfo->asc.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_MOON;
            else if (strstr(keyValue,"alm")!=NULL)
-            pRecordInfo->maxdoas.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_ALMUCANTAR;
+            pRecordInfo->asc.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_ALMUCANTAR;
            else if (strstr(keyValue,"hor")!=NULL)
-            pRecordInfo->maxdoas.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_HORIZON;
+            pRecordInfo->asc.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_HORIZON;
            else
-            pRecordInfo->maxdoas.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_ZENITH;
+            pRecordInfo->asc.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_ZENITH;
           break;
        // ----------------------------------------------------------------------
           case PRJCT_RESULTS_TOTALEXPTIME :
@@ -865,7 +818,7 @@ RC ASCII_QDOAS_Read(ENGINE_CONTEXT *pEngineContext,int recordNo,int dateFlag,int
        // Force zenith for viewing elevation angles higher than 80 deg
 
        if (pRecordInfo->elevationViewAngle>80.)
-        pRecordInfo->maxdoas.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_ZENITH;
+        pRecordInfo->asc.measurementType=PRJCT_INSTR_MAXDOAS_TYPE_ZENITH;
 
        if (useDate && useTime)
         {
@@ -890,7 +843,7 @@ RC ASCII_QDOAS_Read(ENGINE_CONTEXT *pEngineContext,int recordNo,int dateFlag,int
 
     measurementType=pEngineContext->project.instrumental.user;
 
-    // if (rc || (dateFlag && ((pRecordInfo->maxdoas.measurementType!=PRJCT_INSTR_MAXDOAS_TYPE_ZENITH) && (pRecordInfo->elevationViewAngle<80.))))
+    // if (rc || (dateFlag && ((pRecordInfo->asc.measurementType!=PRJCT_INSTR_MAXDOAS_TYPE_ZENITH) && (pRecordInfo->elevationViewAngle<80.))))
 
     if (rc || (dateFlag &&
             (((fabs(pRecordInfo->elevationViewAngle+0.1)>EPSILON) || (fabs(pRecordInfo->azimuthViewAngle+0.1)>EPSILON)) &&
@@ -901,8 +854,8 @@ RC ASCII_QDOAS_Read(ENGINE_CONTEXT *pEngineContext,int recordNo,int dateFlag,int
 
     else if (!dateFlag && (measurementType!=PRJCT_INSTR_MAXDOAS_TYPE_NONE))
      {
-     	if (((measurementType==PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS) && (pRecordInfo->maxdoas.measurementType!=PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS) && (pRecordInfo->maxdoas.measurementType!=PRJCT_INSTR_MAXDOAS_TYPE_ZENITH)) ||
-     	    ((measurementType!=PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS) && (pRecordInfo->maxdoas.measurementType!=measurementType)))
+     	if (((measurementType==PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS) && (pRecordInfo->asc.measurementType!=PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS) && (pRecordInfo->asc.measurementType!=PRJCT_INSTR_MAXDOAS_TYPE_ZENITH)) ||
+     	    ((measurementType!=PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS) && (pRecordInfo->asc.measurementType!=measurementType)))
 
      	 rc=ERROR_ID_FILE_RECORD;
      }

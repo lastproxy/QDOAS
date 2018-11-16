@@ -171,6 +171,29 @@ RC create_dimensions(void) {
   return ERROR_ID_NO; // if we get here, all dimensions were created ok
 }
 
+RC write_omi_automatic_reference_info(void) {
+  const char *format = "%s - row %d automatic reference";
+  size_t format_length = strlen(format);
+  for(int analysiswindow = 0; analysiswindow < NFeno; analysiswindow++ ){
+    for(int row=0; row< OMI_TOTAL_ROWS; row++ ) {
+      FENO *pTabFeno = &TabFeno[row][analysiswindow];
+      if (!pTabFeno->hidden
+          && pTabFeno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC
+          && pTabFeno->ref_description != NULL) {
+        size_t length = strlen(pTabFeno->windowName) + format_length + 3;
+        char attrname[length];
+        sprintf(attrname, format, pTabFeno->windowName, row);
+        replace_chars(attrname);
+        size_t attrlength = strlen(pTabFeno->ref_description) + 1;
+        herr_t result = HE5_SWwriteattr(swath_id, attrname, HE5T_CHARSTRING, (hsize_t*) &attrlength, pTabFeno->ref_description);
+        if(result)
+          return ERROR_SetLast(__func__, ERROR_TYPE_FATAL, ERROR_ID_HDFEOS5_WRITEATTR, attrname);
+      }
+    }
+  }
+  return ERROR_ID_NO;
+}
+
 RC write_global_attrs(const ENGINE_CONTEXT *pEngineContext) {
   // Qdoas info
   const char *attr_qdoas = "Qdoas";
@@ -208,39 +231,39 @@ RC write_global_attrs(const ENGINE_CONTEXT *pEngineContext) {
 }
 
 RC write_automatic_reference_info(const ENGINE_CONTEXT *pEngineContext) {
+  RC rc = ERROR_ID_NO;
+  const char *attr_reference_file = "Automatic reference file";
+  const char *attr_reference_num_records = "Automatic reference: number of records";
   int format = pEngineContext->project.instrumental.readOutFormat;
 
   if ( pEngineContext->project.asciiResults.referenceFlag
        && pEngineContext->analysisRef.refAuto ) {
     switch(format) {
-    case PRJCT_INSTR_FORMAT_OMI:
-    case PRJCT_INSTR_FORMAT_TROPOMI: {
-      const char format[] = "%s - row %d automatic reference";
-      for(int analysiswindow = 0; analysiswindow < NFeno; analysiswindow++ ){
-        for(int row=0; row< ANALYSE_swathSize; ++row) {
-          FENO *pTabFeno = &TabFeno[row][analysiswindow];
-          if (!pTabFeno->hidden
-              && pTabFeno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC
-              && pTabFeno->ref_description != NULL) {
-            size_t length = strlen(pTabFeno->windowName) + sizeof(format) + 10;
-            char attrname[length];
-            sprintf(attrname, format, pTabFeno->windowName, row);
-            replace_chars(attrname);
-            size_t attrlength = strlen(pTabFeno->ref_description) + 1;
-            herr_t result = HE5_SWwriteattr(swath_id, attrname, HE5T_CHARSTRING, (hsize_t*) &attrlength, pTabFeno->ref_description);
-            if(result)
-              return ERROR_SetLast(__func__, ERROR_TYPE_FATAL, ERROR_ID_HDFEOS5_WRITEATTR, attrname);
-          }
-        }
+    case PRJCT_INSTR_FORMAT_GDP_ASCII:
+    case PRJCT_INSTR_FORMAT_GDP_BIN:
+    case PRJCT_INSTR_FORMAT_SCIA_PDS:
+    case PRJCT_INSTR_FORMAT_GOME2:
+      {
+        hsize_t charlength = 1+strlen(OUTPUT_refFile);
+        herr_t result = HE5_SWwriteattr(swath_id, attr_reference_file, HE5T_CHARSTRING,
+                                        &charlength, OUTPUT_refFile);
+        if(result)
+          return ERROR_SetLast(__func__, ERROR_TYPE_FATAL, ERROR_ID_HDFEOS5_WRITEATTR, attr_reference_file);
+        hsize_t one = 1;
+        result = HE5_SWwriteattr(swath_id, attr_reference_num_records, HE5T_NATIVE_INT,
+                                 &one, &OUTPUT_nRec);
+        if(result)
+          return ERROR_SetLast(__func__, ERROR_TYPE_FATAL, ERROR_ID_HDFEOS5_WRITEATTR, attr_reference_num_records);
       }
-      return ERROR_ID_NO;
-    }
+      break;
+    case PRJCT_INSTR_FORMAT_OMI:
+      return write_omi_automatic_reference_info();
       break;
     default:
       break;
     }
   }
-  return ERROR_ID_NO;
+  return rc;
 }
 
 herr_t set_fill_value(hid_t swath_id, const char *fieldname, const struct output_field *calibfield) {
@@ -802,15 +825,11 @@ static enum fieldtype get_fieldtype(enum _prjctResults output_field) {
   case PRJCT_RESULTS_SKY:
   case PRJCT_RESULTS_REFZM:
   case PRJCT_RESULTS_REFNUMBER:
-  case PRJCT_RESULTS_REFNUMBER_BEFORE:
-  case PRJCT_RESULTS_REFNUMBER_AFTER:
   case PRJCT_RESULTS_PIXEL:
   case PRJCT_RESULTS_PIXEL_TYPE:
   case PRJCT_RESULTS_ORBIT:
   case PRJCT_RESULTS_LONGIT:
   case PRJCT_RESULTS_LATIT:
-  case PRJCT_RESULTS_LON_CORNERS:
-  case PRJCT_RESULTS_LAT_CORNERS:
   case PRJCT_RESULTS_ALTIT:
   case PRJCT_RESULTS_CLOUD:
   case PRJCT_RESULTS_CLOUDTOPP:
@@ -874,9 +893,6 @@ static enum fieldtype get_fieldtype(enum _prjctResults output_field) {
   case PRJCT_RESULTS_TOTALEXPTIME :
   case PRJCT_RESULTS_TOTALACQTIME :
   case PRJCT_RESULTS_FILENAME :
-  case PRJCT_RESULTS_SCANINDEX :
-  case PRJCT_RESULTS_ZENITH_BEFORE :
-  case PRJCT_RESULTS_ZENITH_AFTER :
     result = GEO;
     break;
     // all other fields are Data fields:

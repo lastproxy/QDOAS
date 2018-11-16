@@ -45,7 +45,7 @@
   fields containing results of the reference calibration are stored in
   the array #output_data_calib, and output fields containing results of
   the analyis (or run calibration) are contained in the array
-  output_data_analysis.
+  #output_data_analysis.
 
   The main members of the output_field structure are the buffer
   output_field::data, used to store the required data until it is
@@ -88,12 +88,12 @@
 
 #include "tropomi_read.h"
 #include "gdp_bin_read.h"
-#include "tropomi_read.h"
-#include "gome2_read.h"
-#include "scia-read.h"
 #include "spectrum_files.h"
 
 AMF_SYMBOL *OUTPUT_AmfSpace;                                                 // list of cross sections with associated AMF file
+
+char OUTPUT_refFile[DOAS_MAX_PATH_LEN+1];
+int OUTPUT_nRec;
 
 const char *QDOAS_FILL_STRING = "";
 const char QDOAS_FILL_BYTE = -127;
@@ -101,7 +101,7 @@ const char QDOAS_FILL_CHAR = 0;
 const short QDOAS_FILL_SHORT = -32767;
 const int QDOAS_FILL_INT = -2147483647;
 const float QDOAS_FILL_FLOAT = 9.9692099683868690e+36f; /* near 15 * 2^119 */
-const double QDOAS_FILL_DOUBLE = (double)9.9692099683868690e+306;
+const double QDOAS_FILL_DOUBLE = 9.9692099683868690e+36;
 const unsigned char QDOAS_FILL_UBYTE = 255;
 const unsigned short QDOAS_FILL_USHORT = 65535;
 const unsigned int QDOAS_FILL_UINT = 4294967295U;
@@ -117,7 +117,7 @@ const char *output_file_extensions[] = { [ASCII] = ".ASC",
 
 struct output_field output_data_analysis[MAX_FIELDS];
 unsigned int output_num_fields = 0;
-struct output_field output_data_calib[MAX_CALIB_FIELDS];
+struct output_field output_data_calib[MAX_FIELDS];
 unsigned int calib_num_fields = 0;
 /*! \brief For GOME-2/Sciamachy automatic reference spectrum: number
     of spectra used. */
@@ -195,7 +195,7 @@ double output_flux(const ENGINE_CONTEXT *pEngineContext, double wavelength, int 
   return flux;
 }
 
-/*! \brief Structure to associate a _prjctResults type to an
+/*! \brief Structure to associate a _prjctResutls type to an
     output_field configuration.*/
 struct outputconfig {
   enum _prjctResults type;
@@ -386,7 +386,8 @@ RC OutputGetAmf(CROSS_RESULTS *pResults,double Zm,double Tm,double *pAmf)
        case ANLYS_AMF_TYPE_SZA :
 
         if ((pAmfSymbol->deriv2!=NULL) &&
-           ((rc=SPLINE_Vector(pAmfSymbol->Phi[1]+1,pAmfSymbol->Phi[2]+1,pAmfSymbol->deriv2[2]+1,pAmfSymbol->PhiLines,&Zm,pAmf,1,SPLINE_CUBIC))!=ERROR_ID_NO))
+           ((rc=SPLINE_Vector(pAmfSymbol->Phi[1]+1,pAmfSymbol->Phi[2]+1,pAmfSymbol->deriv2[2]+1,pAmfSymbol->PhiLines,&Zm,pAmf,1,
+                                 SPLINE_CUBIC,"OutputGetAmf"))!=ERROR_ID_NO))
 
          rc=ERROR_ID_AMF;
 
@@ -708,12 +709,14 @@ static void register_field(struct output_field field) {
   \param [in] fieldsFlag       list of fields to output
   \param [in] fieldsNumber     the number of fields in the previous list
 */
-static void OutputRegisterFields(const ENGINE_CONTEXT *pEngineContext, const int *fieldsFlag,int fieldsNumber)
+static void OutputRegisterFields(const ENGINE_CONTEXT *pEngineContext, const char *fieldsFlag,int fieldsNumber)
 {
   PROJECT *pProject=(PROJECT *)&pEngineContext->project;
 
   // default values for instrument-dependent output functions:
-  func_int func_meastype = &get_meastype;
+  func_int func_meastype = &mfc_get_meastype;
+  func_float func_corner_latitudes = NULL;
+  func_float func_corner_longitudes = NULL;
   size_t num_sza = 1;
   func_float func_sza = &get_sza;
   size_t num_azimuth = 1;
@@ -739,12 +742,11 @@ static void OutputRegisterFields(const ENGINE_CONTEXT *pEngineContext, const int
       max_ndet = NDET[i];
   }
 
-  // For GOME, SCIA, GOME-2, the latitude output field contains pixel
-  // corner coordinates instead of pixel center coordinates:
   switch(pProject->instrumental.readOutFormat) {
   case PRJCT_INSTR_FORMAT_SCIA_PDS:
   case PRJCT_INSTR_FORMAT_GOME2:
   case PRJCT_INSTR_FORMAT_GDP_BIN:
+  case PRJCT_INSTR_FORMAT_GDP_ASCII:
     num_sza = num_azimuth = num_los_zenith = num_los_azimuth = 3;
     break;
   }
@@ -752,6 +754,8 @@ static void OutputRegisterFields(const ENGINE_CONTEXT *pEngineContext, const int
   switch(pProject->instrumental.readOutFormat) {
   case PRJCT_INSTR_FORMAT_SCIA_PDS:
     func_frac_time = &get_frac_time_recordinfo;
+    func_corner_longitudes = &scia_get_corner_longitudes;
+    func_corner_latitudes = &scia_get_corner_latitudes;
     func_los_azimuth = &scia_get_los_azimuth;
     func_los_zenith = &scia_get_los_zenith;
     func_sza = &scia_get_sza;
@@ -761,25 +765,68 @@ static void OutputRegisterFields(const ENGINE_CONTEXT *pEngineContext, const int
   case PRJCT_INSTR_FORMAT_GOME2:
     func_sza = &gome2_get_sza;
     func_azimuth = &gome2_get_azim;
+    func_corner_longitudes = &gome2_get_corner_longitudes;
+    func_corner_latitudes = &gome2_get_corner_latitudes;
     func_los_azimuth = &gome2_get_los_azimuth;
     func_los_zenith = &gome2_get_los_zenith;
     format_datetime = "%4d%02d%02d%02d%02d%02d.%06d"; // year, month, day, hour, min, sec, microseconds
     func_frac_time = &get_frac_time_recordinfo;
     break;
   case PRJCT_INSTR_FORMAT_GDP_BIN:
-    func_sza = &gdp_get_sza;
-    func_azimuth = &gdp_get_azim;
-    func_los_azimuth = &gdp_get_los_azimuth;
-    func_los_zenith = &gdp_get_los_zenith;
+    if (GDP_BIN_orbitFiles[GDP_BIN_currentFileIndex].gdpBinHeader.version<40) {
+      func_sza = &gdp3_get_sza;
+      func_azimuth = &gdp3_get_azim;
+      func_corner_longitudes = &gdp3_get_corner_longitudes;
+      func_corner_latitudes = &gdp3_get_corner_latitudes;
+      func_los_azimuth = &gdp3_get_los_azimuth;
+      func_los_zenith = &gdp3_get_los_zenith;
+    }
+   else {
+     func_sza = &gdp4_get_sza;
+     func_azimuth = &gdp4_get_azim;
+     func_corner_longitudes = &gdp4_get_corner_longitudes;
+     func_corner_latitudes = &gdp4_get_corner_latitudes;
+     func_los_azimuth = &gdp4_get_los_azimuth;
+     func_los_zenith = &gdp4_get_los_zenith;
+   }
     break;
   case PRJCT_INSTR_FORMAT_BIRA_AIRBORNE :
   case PRJCT_INSTR_FORMAT_BIRA_MOBILE :
     func_frac_time = &get_frac_time_recordinfo;
     format_datetime = "%4d%02d%02d%02d%02d%02d.%03d"; // year, month, day, hour, min, sec, milliseconds
     break;
+  case PRJCT_INSTR_FORMAT_GDP_ASCII:
+    func_sza = &gdpasc_get_sza;
+    func_azimuth = &gdpasc_get_azim;
+    func_corner_longitudes = &gdpasc_get_corner_longitudes;
+    func_corner_latitudes = &gdpasc_get_corner_latitudes;
+    break;
   case PRJCT_INSTR_FORMAT_MKZY:
     func_scanning_angle = &mkzy_get_scanning_angle;
     break;
+  case PRJCT_INSTR_FORMAT_CCD_EEV:
+    func_meastype = ccd_get_meastype;
+    break;
+  case PRJCT_INSTR_FORMAT_ASCII:
+    if (pEngineContext->project.instrumental.ascii.format==PRJCT_INSTR_ASCII_FORMAT_COLUMN_EXTENDED)
+     func_meastype = asc_get_meastype;
+    break;
+  case PRJCT_INSTR_FORMAT_MFC_BIRA:
+    func_meastype= mfc_get_meastype;
+    break;
+  }
+
+  const char *lat_fieldname, *lon_fieldname;
+  if (is_satellite(pProject->instrumental.readOutFormat) ) {
+    // for satellites, we keep the convention that
+    // "Latitude/Longitude" means "pixel corner latitude/longitude",
+    // and the latitudes/longitudes of the observations are called
+    // "Latitude(pixel center)"
+    lat_fieldname = "Latitude(pixel center)";
+    lon_fieldname = "Longitude(pixel center)";
+  } else {
+    lat_fieldname = "Latitude";
+    lon_fieldname = "Longitude";
   }
 
   OUTPUT_exportSpectraFlag=0;
@@ -851,16 +898,16 @@ static void OutputRegisterFields(const ENGINE_CONTEXT *pEngineContext, const int
        register_field( (struct output_field) { .basic_fieldname = "Orbit number", .memory_type = OUTPUT_INT, .resulttype = fieldtype, .format = "%#8d", .get_data = (func_void)&get_orbit_number});
        break;
      case PRJCT_RESULTS_LONGIT:
-       register_field( (struct output_field) { .basic_fieldname = "Longitude", .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)get_longitude });
+       if(func_corner_longitudes) { // we have pixel corners
+         register_field( (struct output_field) { .basic_fieldname = "Longitude", .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)func_corner_longitudes, .data_cols = 4, .column_number_format="(%d)" });
+       }
+       register_field( (struct output_field) { .basic_fieldname = lon_fieldname, .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)&get_longitude }); // pixel centre
        break;
      case PRJCT_RESULTS_LATIT:
-       register_field( (struct output_field) { .basic_fieldname = "Latitude", .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)get_latitude });
-       break;
-     case PRJCT_RESULTS_LON_CORNERS:
-       register_field( (struct output_field) { .basic_fieldname = "Pixel corner longitudes", .memory_type = OUTPUT_FLOAT, .resulttype= fieldtype, .format = "%#12.6f", .get_data = (func_void)&get_corner_longitudes, .data_cols = 4, .column_number_format="(%d)" });
-       break;
-     case PRJCT_RESULTS_LAT_CORNERS:
-       register_field( (struct output_field) { .basic_fieldname = "Pixel corner latitudes", .memory_type = OUTPUT_FLOAT, .resulttype= fieldtype, .format = "%#12.6f", .get_data = (func_void)&get_corner_latitudes, .data_cols = 4, .column_number_format="(%d)" });
+       if(func_corner_latitudes) { // we have pixel corners
+         register_field( (struct output_field) { .basic_fieldname = "Latitude", .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)func_corner_latitudes, .data_cols = 4, .column_number_format="(%d)" });
+       }
+       register_field( (struct output_field) { .basic_fieldname = lat_fieldname, .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)&get_latitude });
        break;
      case PRJCT_RESULTS_ALTIT:
        register_field( (struct output_field) { .basic_fieldname = "Altitude", .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)&get_altitude });
@@ -915,12 +962,6 @@ static void OutputRegisterFields(const ENGINE_CONTEXT *pEngineContext, const int
        break;
      case PRJCT_RESULTS_SCIA_STATE_ID:
        register_field( (struct output_field) { .basic_fieldname = "SCIAMACHY State Id", .memory_type = OUTPUT_USHORT, .resulttype = fieldtype, .format = "%#5d", .get_data = (func_void)&get_scia_state_id });
-       break;
-     case PRJCT_RESULTS_STARTDATE:
-       register_field( (struct output_field) { .basic_fieldname = "Start Date (YYYYMMDDhhmmss)", .memory_type = OUTPUT_DATETIME, .resulttype = fieldtype, .format = format_datetime, .get_data = (func_void)&get_start_datetime });
-       break;
-     case PRJCT_RESULTS_ENDDATE:
-       register_field( (struct output_field) { .basic_fieldname = "End Date (YYYYMMDDhhmmss)", .memory_type = OUTPUT_DATETIME, .resulttype = fieldtype, .format = format_datetime, .get_data = (func_void)&get_end_datetime });
        break;
      case PRJCT_RESULTS_STARTTIME:
        register_field( (struct output_field) { .basic_fieldname = "Start Time (hhmmss)", .memory_type = OUTPUT_TIME, .resulttype = fieldtype, .format = "%02d%02d%02d", .get_data = (func_void)&get_start_time });
@@ -1063,18 +1104,6 @@ static void OutputRegisterFields(const ENGINE_CONTEXT *pEngineContext, const int
      case PRJCT_RESULTS_FILENAME:
        register_field( (struct output_field) { .basic_fieldname = "Filename", .memory_type = OUTPUT_STRING, .resulttype = fieldtype, .format = "%s", .get_data = (func_void)&get_filename });
      break;
-     case PRJCT_RESULTS_SCANINDEX:
-       register_field( (struct output_field) { .basic_fieldname = "Scan index", .memory_type = OUTPUT_INT, .resulttype = fieldtype, .format = "%#6d", .get_data = (func_void)&get_scan_index });
-     break;
-     case PRJCT_RESULTS_ZENITH_BEFORE:
-       register_field( (struct output_field) { .basic_fieldname = "index_zenith_before", .memory_type = OUTPUT_INT, .resulttype = fieldtype, .format = "%#6d", .get_data = (func_void)&get_zenith_before_index });
-     break;
-     case PRJCT_RESULTS_ZENITH_AFTER:
-       register_field( (struct output_field) { .basic_fieldname = "index_zenith_after", .memory_type = OUTPUT_INT, .resulttype = fieldtype, .format = "%#6d", .get_data = (func_void)&get_zenith_after_index });
-     break;
-     case PRJCT_RESULTS_RC:
-       register_field( (struct output_field) { .basic_fieldname = "rc", .memory_type = OUTPUT_INT, .resulttype = fieldtype, .format = "%#5d", .get_data = (func_void)&get_rc });
-       break;
      default:
        break;
      }
@@ -1087,12 +1116,14 @@ static void OutputRegisterFields(const ENGINE_CONTEXT *pEngineContext, const int
   \param [in] fieldsFlag       list of fields to output
   \param [in] fieldsNumber     the number of fields in the previous list
 */
-static void OutputRegisterFieldsToExport(const ENGINE_CONTEXT *pEngineContext, const int *fieldsFlag,int fieldsNumber)
+static void OutputRegisterFieldsToExport(const ENGINE_CONTEXT *pEngineContext, const char *fieldsFlag,int fieldsNumber)
 {
   PROJECT *pProject=(PROJECT *)&pEngineContext->project;
 
   // default values for instrument-dependent output functions:
-  func_int func_meastype = &get_meastype;
+  func_int func_meastype = &mfc_get_meastype;
+  func_float func_corner_latitudes = NULL;
+  func_float func_corner_longitudes = NULL;
   size_t num_sza = 1;
   func_float func_sza = &get_sza;
   size_t num_azimuth = 1;
@@ -1122,6 +1153,7 @@ static void OutputRegisterFieldsToExport(const ENGINE_CONTEXT *pEngineContext, c
   case PRJCT_INSTR_FORMAT_SCIA_PDS:
   case PRJCT_INSTR_FORMAT_GOME2:
   case PRJCT_INSTR_FORMAT_GDP_BIN:
+  case PRJCT_INSTR_FORMAT_GDP_ASCII:
     num_sza = num_azimuth = num_los_zenith = num_los_azimuth = 3;
     break;
   }
@@ -1129,6 +1161,8 @@ static void OutputRegisterFieldsToExport(const ENGINE_CONTEXT *pEngineContext, c
   switch(pProject->instrumental.readOutFormat) {
   case PRJCT_INSTR_FORMAT_SCIA_PDS:
     func_frac_time = &get_frac_time_recordinfo;
+    func_corner_longitudes = &scia_get_corner_longitudes;
+    func_corner_latitudes = &scia_get_corner_latitudes;
     func_los_azimuth = &scia_get_los_azimuth;
     func_los_zenith = &scia_get_los_zenith;
     func_sza = &scia_get_sza;
@@ -1138,25 +1172,64 @@ static void OutputRegisterFieldsToExport(const ENGINE_CONTEXT *pEngineContext, c
   case PRJCT_INSTR_FORMAT_GOME2:
     func_sza = &gome2_get_sza;
     func_azimuth = &gome2_get_azim;
+    func_corner_longitudes = &gome2_get_corner_longitudes;
+    func_corner_latitudes = &gome2_get_corner_latitudes;
     func_los_azimuth = &gome2_get_los_azimuth;
     func_los_zenith = &gome2_get_los_zenith;
     format_datetime = "%4d%02d%02d%02d%02d%02d.%06d"; // year, month, day, hour, min, sec, microseconds
     func_frac_time = &get_frac_time_recordinfo;
     break;
   case PRJCT_INSTR_FORMAT_GDP_BIN:
-    func_sza = &gdp_get_sza;
-    func_azimuth = &gdp_get_azim;
-    func_los_azimuth = &gdp_get_los_azimuth;
-    func_los_zenith = &gdp_get_los_zenith;
+    if (GDP_BIN_orbitFiles[GDP_BIN_currentFileIndex].gdpBinHeader.version<40) {
+      func_sza = &gdp3_get_sza;
+      func_azimuth = &gdp3_get_azim;
+      func_corner_longitudes = &gdp3_get_corner_longitudes;
+      func_corner_latitudes = &gdp3_get_corner_latitudes;
+      func_los_azimuth = &gdp3_get_los_azimuth;
+      func_los_zenith = &gdp3_get_los_zenith;
+    }
+   else {
+     func_sza = &gdp4_get_sza;
+     func_azimuth = &gdp4_get_azim;
+     func_corner_longitudes = &gdp4_get_corner_longitudes;
+     func_corner_latitudes = &gdp4_get_corner_latitudes;
+     func_los_azimuth = &gdp4_get_los_azimuth;
+     func_los_zenith = &gdp4_get_los_zenith;
+   }
     break;
   case PRJCT_INSTR_FORMAT_BIRA_AIRBORNE :
   case PRJCT_INSTR_FORMAT_BIRA_MOBILE :
     func_frac_time = &get_frac_time_recordinfo;
     format_datetime = "%4d%02d%02d%02d%02d%02d.%03d"; // year, month, day, hour, min, sec, milliseconds
     break;
+  case PRJCT_INSTR_FORMAT_GDP_ASCII:
+    func_sza = &gdpasc_get_sza;
+    func_azimuth = &gdpasc_get_azim;
+    func_corner_longitudes = &gdpasc_get_corner_longitudes;
+    func_corner_latitudes = &gdpasc_get_corner_latitudes;
+    break;
   case PRJCT_INSTR_FORMAT_MKZY:
     func_scanning_angle = &mkzy_get_scanning_angle;
     break;
+  case PRJCT_INSTR_FORMAT_CCD_EEV:
+    func_meastype = ccd_get_meastype;
+    break;
+  case PRJCT_INSTR_FORMAT_MFC_BIRA:
+    func_meastype= mfc_get_meastype;
+    break;
+  }
+
+  const char *lat_fieldname, *lon_fieldname;
+  if (is_satellite(pProject->instrumental.readOutFormat) ) {
+    // for satellites, we keep the convention that
+    // "Latitude/Longitude" means "pixel corner latitude/longitude",
+    // and the latitudes/longitudes of the observations are called
+    // "Latitude(pixel center)"
+    lat_fieldname = "Latitude(pixel center)";
+    lon_fieldname = "Longitude(pixel center)";
+  } else {
+    lat_fieldname = "Latitude";
+    lon_fieldname = "Longitude";
   }
 
   OUTPUT_exportSpectraFlag=0;
@@ -1228,16 +1301,16 @@ static void OutputRegisterFieldsToExport(const ENGINE_CONTEXT *pEngineContext, c
        register_field( (struct output_field) { .basic_fieldname = "Orbit number", .memory_type = OUTPUT_INT, .resulttype = fieldtype, .format = "%#8d", .get_data = (func_void)&get_orbit_number});
        break;
      case PRJCT_RESULTS_LONGIT:  // !!! EXPORT FUNCTION !!!
-       register_field( (struct output_field) { .basic_fieldname = "Longitude", .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)get_longitude});
+       if(func_corner_longitudes) { // we have pixel corners
+         register_field( (struct output_field) { .basic_fieldname = "Longitude", .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)func_corner_longitudes, .data_cols = 4, .column_number_format="(%d)" });
+       }
+       register_field( (struct output_field) { .basic_fieldname = lon_fieldname, .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)&get_longitude }); // pixel centre
        break;
      case PRJCT_RESULTS_LATIT:  // !!! EXPORT FUNCTION !!!
-       register_field( (struct output_field) { .basic_fieldname = "Latitude", .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)&get_latitude});
-       break;
-     case PRJCT_RESULTS_LON_CORNERS:  // !!! EXPORT FUNCTION !!!
-       register_field( (struct output_field) { .basic_fieldname = "Pixel corner longitudes", .memory_type = OUTPUT_FLOAT, .resulttype= fieldtype, .format = "%#12.6f", .get_data = (func_void)&get_corner_longitudes, .data_cols = 4, .column_number_format="(%d)" });
-       break;
-     case PRJCT_RESULTS_LAT_CORNERS:  // !!! EXPORT FUNCTION !!!
-       register_field( (struct output_field) { .basic_fieldname = "Pixel corner latitudes", .memory_type = OUTPUT_FLOAT, .resulttype= fieldtype, .format = "%#12.6f", .get_data = (func_void)&get_corner_latitudes, .data_cols = 4, .column_number_format="(%d)" });
+       if(func_corner_latitudes) { // we have pixel corners
+         register_field( (struct output_field) { .basic_fieldname = "Latitude", .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)func_corner_latitudes, .data_cols = 4, .column_number_format="(%d)" });
+       }
+       register_field( (struct output_field) { .basic_fieldname = lat_fieldname, .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)&get_latitude });
        break;
      case PRJCT_RESULTS_ALTIT:  // !!! EXPORT FUNCTION !!!
        register_field( (struct output_field) { .basic_fieldname = "Altitude", .memory_type = OUTPUT_FLOAT, .resulttype = fieldtype, .format = "%#12.6f", .get_data = (func_void)&get_altitude });
@@ -1292,12 +1365,6 @@ static void OutputRegisterFieldsToExport(const ENGINE_CONTEXT *pEngineContext, c
        break;
      case PRJCT_RESULTS_SCIA_STATE_ID:  // !!! EXPORT FUNCTION !!!
        register_field( (struct output_field) { .basic_fieldname = "SCIAMACHY State Id", .memory_type = OUTPUT_USHORT, .resulttype = fieldtype, .format = "%#5d", .get_data = (func_void)&get_scia_state_id });
-       break;
-     case PRJCT_RESULTS_STARTDATE:  // !!! EXPORT FUNCTION !!!
-       register_field( (struct output_field) { .basic_fieldname = "UTC Start Date (DD/MM/YYYY)", .memory_type = OUTPUT_DATE, .resulttype = fieldtype, .format = "%02d/%02d/%d", .get_data = (func_void)&get_date_start });
-       break;
-     case PRJCT_RESULTS_ENDDATE:  // !!! EXPORT FUNCTION !!!
-       register_field( (struct output_field) { .basic_fieldname = "UTC End Date (DD/MM/YYYY)", .memory_type = OUTPUT_DATE, .resulttype = fieldtype, .format = "%02d/%02d/%d", .get_data = (func_void)&get_date_end });
        break;
      case PRJCT_RESULTS_STARTTIME:  // !!! EXPORT FUNCTION !!!
        register_field( (struct output_field) { .basic_fieldname = "UTC Start Time", .memory_type = OUTPUT_TIME, .resulttype = fieldtype, .format = "%02d:%02d:%02d", .get_data = (func_void)&get_start_time });
@@ -1448,18 +1515,6 @@ static void OutputRegisterFieldsToExport(const ENGINE_CONTEXT *pEngineContext, c
      case PRJCT_RESULTS_FILENAME: // !!! EXPORT FUNCTION !!!
        register_field( (struct output_field) { .basic_fieldname = "Filename", .memory_type = OUTPUT_STRING, .resulttype = fieldtype, .format = "%s", .get_data = (func_void)&get_filename });
      break;
-     case PRJCT_RESULTS_SCANINDEX:  // !!! EXPORT FUNCTION !!!
-       register_field( (struct output_field) { .basic_fieldname = "Scan index", .memory_type = OUTPUT_INT, .resulttype = fieldtype, .format = "%#6d", .get_data = (func_void)&get_scan_index });
-     break;
-     case PRJCT_RESULTS_ZENITH_BEFORE:  // !!! EXPORT FUNCTION !!!
-       register_field( (struct output_field) { .basic_fieldname = "index_zenith_before", .memory_type = OUTPUT_INT, .resulttype = fieldtype, .format = "%#6d", .get_data = (func_void)&get_zenith_before_index });
-     break;
-     case PRJCT_RESULTS_ZENITH_AFTER:  // !!! EXPORT FUNCTION !!!
-       register_field( (struct output_field) { .basic_fieldname = "index_zenith_after", .memory_type = OUTPUT_INT, .resulttype = fieldtype, .format = "%#6d", .get_data = (func_void)&get_zenith_after_index });
-     break;
-     case PRJCT_RESULTS_RC:  // !!! EXPORT FUNCTION !!!
-       register_field( (struct output_field) { .basic_fieldname = "rc", .memory_type = OUTPUT_INT, .resulttype = fieldtype, .format = "%#5d", .get_data = (func_void)&get_rc });
-       break;
      default:  // !!! EXPORT FUNCTION !!!
        break;
      }
@@ -1469,7 +1524,7 @@ static void OutputRegisterFieldsToExport(const ENGINE_CONTEXT *pEngineContext, c
 /*! \brief Helper function to initialize a new output_field in the
     \ref output_data_calib array.*/
 static int register_calibration_field(struct output_field newfield) {
-  if (calib_num_fields == MAX_CALIB_FIELDS) {
+  if (calib_num_fields == MAX_FIELDS) {
     return ERROR_SetLast(__func__, ERROR_TYPE_FATAL, ERROR_ID_BUG, "Maximum number of calibration output fields reached.");
   }
   struct output_field *calibfield = &output_data_calib[calib_num_fields++];
@@ -1567,9 +1622,10 @@ static int register_calibration(int kurucz_index, int index_row, int index_feno)
 static int OutputRegisterParam(const ENGINE_CONTEXT *pEngineContext)
 {
   int indexFenoColumn = 0;
-  // For imagers: increase indexFenoColumn until we find a used track, otherwise: use track 0
+  // if using OMI: increase indexFenoColumn until we find a used track, otherwise: use track 0
   for(indexFenoColumn=0; indexFenoColumn<ANALYSE_swathSize; indexFenoColumn++) {
-    if (pEngineContext->project.instrumental.use_row[indexFenoColumn] )
+    if ( pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_OMI ||
+         pEngineContext->project.instrumental.use_row[indexFenoColumn] )
       break;
   }
 
@@ -1612,7 +1668,6 @@ static int register_analysis_field(const struct output_field* fieldcontent, int 
   sprintf(full_fieldname, "%s%s", newfield->basic_fieldname, symbol_name);
   newfield->fieldname = full_fieldname;
   newfield->windowname = strdup(window_name);
-
   newfield->data = NULL;
   if (newfield->data_cols == 0) // data_cols = 1 as a default
     newfield->data_cols = 1;
@@ -1637,34 +1692,13 @@ static int register_analysis_field(const struct output_field* fieldcontent, int 
 
   \param [in] windowName name of the analysis window, with suffix "."
 */
-
-static int register_analysis_output_field(int field,struct outputconfig analysis_infos[],size_t *parr_length,int indexFeno, int index_calib, const char *windowName)
- {
-   enum _prjctResults indexField=field;
-   struct outputconfig *output =  (struct outputconfig *) lfind(&indexField, analysis_infos, parr_length, sizeof(analysis_infos[0]), &compare_record);
-    if (output)
-     {
-      output->field.get_tabfeno = &get_tabfeno_analysis;
-      output->field.resulttype = output->type;
-      int rc = register_analysis_field(&output->field, indexFeno, index_calib, ITEM_NONE, windowName, "");
-      if (rc != ERROR_ID_NO) return rc;
-     }
-
-   return ERROR_ID_NO;
- }
-
 static int register_analysis_output(const PRJCT_RESULTS *pResults, int indexFeno, int index_calib, const char *windowName) {
 
   struct outputconfig analysis_infos[] = {
-
     { (outputRunCalib) ? -1 : PRJCT_RESULTS_REFZM, // no REFZM in "run calibration" mode
       { .basic_fieldname = "RefZm", .format = FORMAT_FLOAT, .memory_type = OUTPUT_FLOAT, .get_data = (func_void) &get_refzm} },
     { (outputRunCalib) ? -1 : PRJCT_RESULTS_REFNUMBER, // no REFNUMBER in "run calibration" mode
       { .basic_fieldname = "RefNumber", .format = FORMAT_INT, .memory_type = OUTPUT_INT, .get_data = (func_void) &get_refnumber} },
-    { (outputRunCalib) ? -1 : PRJCT_RESULTS_REFNUMBER_BEFORE, // no REFNUMBER in "run calibration" mode
-      { .basic_fieldname = "RefNumber(before)", .format = FORMAT_INT, .memory_type = OUTPUT_INT, .get_data = (func_void) &get_refnumber_before} },
-    { (outputRunCalib) ? -1 : PRJCT_RESULTS_REFNUMBER_AFTER, // no REFNUMBER in "run calibration" mode
-      { .basic_fieldname = "RefNumber(after)", .format = FORMAT_INT, .memory_type = OUTPUT_INT, .get_data = (func_void) &get_refnumber_after} },
     { (outputRunCalib) ? -1 : PRJCT_RESULTS_REFSHIFT, // no REFSHIFT in "run calibration" mode
       { .basic_fieldname = "Ref2/Ref1 Shift", .format = FORMAT_FLOAT, .memory_type = OUTPUT_FLOAT, .get_data = (func_void) &get_ref_shift} },
     { (outputRunCalib) ? -1 : PRJCT_RESULTS_SPIKES, // no spike removal in "run calibration" mode
@@ -1674,9 +1708,6 @@ static int register_analysis_output(const PRJCT_RESULTS *pResults, int indexFeno
     { PRJCT_RESULTS_CHI,
       { .basic_fieldname = "Chi", .format = FORMAT_DOUBLE, .memory_type = OUTPUT_DOUBLE,
         .get_data = (outputRunCalib) ? (func_void) &get_chisquare_calib : (func_void) &get_chisquare} },
-    { PRJCT_RESULTS_RC,
-      { .basic_fieldname = "rc", .format = FORMAT_INT, .memory_type = OUTPUT_INT,
-        .get_data = (outputRunCalib) ? (func_void) &get_rc_calib : (func_void) &get_rc_analysis, .data_cols=(outputRunCalib) ? 1:2, .column_number_format="(%d)" } },
     { PRJCT_RESULTS_RMS,
       { .basic_fieldname = "RMS", .format = FORMAT_DOUBLE, .memory_type = OUTPUT_DOUBLE,
         .get_data = (outputRunCalib) ? (func_void) &get_rms_calib : (func_void) &get_rms} },
@@ -1696,21 +1727,17 @@ static int register_analysis_output(const PRJCT_RESULTS *pResults, int indexFeno
   };
 
   size_t arr_length = sizeof(analysis_infos)/sizeof(analysis_infos[0]);
-  FENO *pTabFeno=&TabFeno[0][indexFeno];
-  int refUnique=((pTabFeno->refMaxdoasSelectionMode==ANLYS_MAXDOAS_REF_SZA) ||
-                 (pTabFeno->refSpectrumSelectionScanMode==ANLYS_MAXDOAS_REF_SCAN_BEFORE) ||
-                 (pTabFeno->refSpectrumSelectionScanMode==ANLYS_MAXDOAS_REF_SCAN_AFTER))?1:0;
 
-  for(int i = 0; i<pResults->fieldsNumber; i++)
-   {
-    if ((pResults->fieldsFlag[i]!=PRJCT_RESULTS_REFNUMBER) || refUnique)
-     register_analysis_output_field(pResults->fieldsFlag[i],analysis_infos,&arr_length,indexFeno,index_calib,windowName);
-    else
-     {
-      register_analysis_output_field(PRJCT_RESULTS_REFNUMBER_BEFORE,analysis_infos,&arr_length,indexFeno,index_calib,windowName);
-      register_analysis_output_field(PRJCT_RESULTS_REFNUMBER_AFTER,analysis_infos,&arr_length,indexFeno,index_calib,windowName);
-     }
-   }
+  for(int i = 0; i<pResults->fieldsNumber; i++) {
+    enum _prjctResults indexField = pResults->fieldsFlag[i];
+    struct outputconfig *output =  (struct outputconfig *) lfind(&indexField, analysis_infos, &arr_length, sizeof(analysis_infos[0]), &compare_record);
+    if(output) {
+      output->field.get_tabfeno = &get_tabfeno_analysis;
+      output->field.resulttype = output->type;
+      int rc = register_analysis_field(&output->field, indexFeno, index_calib, ITEM_NONE, windowName, "");
+      if (rc != ERROR_ID_NO) return rc;
+    }
+  }
 
   return ERROR_ID_NO;
 }
@@ -1854,7 +1881,8 @@ RC OUTPUT_RegisterData(const ENGINE_CONTEXT *pEngineContext)
 
           if (pResults->calibFlag) {
             for (indexFenoColumn=0;indexFenoColumn<ANALYSE_swathSize;indexFenoColumn++) {
-              if (pEngineContext->project.instrumental.use_row[indexFenoColumn]) {
+              if ((pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_OMI) ||
+                  pEngineContext->project.instrumental.use_row[indexFenoColumn]) {
 
                 int indexFenoK=ITEM_NONE;
                 for (int indexFeno=0;indexFeno<NFeno && indexFenoK==ITEM_NONE; ++indexFeno) {
@@ -1890,14 +1918,17 @@ RC OUTPUT_RegisterData(const ENGINE_CONTEXT *pEngineContext)
   return ERROR_ID_NO;
 }
 
-RC OUTPUT_RegisterSpectra(const ENGINE_CONTEXT *pEngineContext) {
+RC OUTPUT_RegisterSpectra(const ENGINE_CONTEXT *pEngineContext)
+ {
+  // Declarations
 
-  int i;
+  char *fieldsFlag;
+  int i,fieldsNumber;
 
   // Initializations
 
-  const int *fieldsFlag=pEngineContext->project.exportSpectra.fieldsFlag;
-  int fieldsNumber=pEngineContext->project.exportSpectra.fieldsNumber;
+  fieldsFlag=pEngineContext->project.exportSpectra.fieldsFlag;
+  fieldsNumber=pEngineContext->project.exportSpectra.fieldsNumber;
 
   // Browse fields
 
@@ -1935,9 +1966,6 @@ static void OutputSaveRecord(const ENGINE_CONTEXT *pEngineContext,INDEX indexFen
       outputRecords[index_record].day=(int)pRecordInfo->present_datetime.thedate.da_day;
       outputRecords[index_record].longit=(float)pRecordInfo->longitude;
       outputRecords[index_record].latit=(float)pRecordInfo->latitude;
-
-      outputRecords[index_record].i_crosstrack = pRecordInfo->i_crosstrack; // (outputRecords[index_record].specno-1) % n_crosstrack; //specno is 1-based
-      outputRecords[index_record].i_alongtrack = pRecordInfo->i_alongtrack; // (outputRecords[index_record].specno-1) / n_crosstrack;
     }
  }
 
@@ -2003,17 +2031,14 @@ static RC get_orbit_date(const ENGINE_CONTEXT *pEngineContext, int *orbit_year, 
   case PRJCT_INSTR_FORMAT_GDP_BIN:
     rc = GDP_BIN_get_orbit_date(orbit_year, orbit_month, orbit_day);
     break;
+  case PRJCT_INSTR_FORMAT_GDP_ASCII:
+    GDP_ASC_get_orbit_date(orbit_year, orbit_month, orbit_day);
+    break;
   case PRJCT_INSTR_FORMAT_GOME2:
     GOME2_get_orbit_date(orbit_year, orbit_month, orbit_day);
     break;
   case PRJCT_INSTR_FORMAT_SCIA_PDS:
     SCIA_get_orbit_date(orbit_year, orbit_month, orbit_day);
-    break;
-  case PRJCT_INSTR_FORMAT_OMPS:
-    OMPS_get_orbit_date(orbit_year, orbit_month, orbit_day);
-    break;
-  case PRJCT_INSTR_FORMAT_GOME1_NETCDF:
-    GOME1NETCDF_get_orbit_date(orbit_year, orbit_month, orbit_day);
     break;
   default:
     // we should never get here:
@@ -2325,7 +2350,7 @@ RC OUTPUT_FlushBuffers(ENGINE_CONTEXT *pEngineContext)
    else
      ptr++;
 
-   if (strcasecmp(ptr,"automatic") != 0) {
+   if ( strcasecmp(ptr,"automatic") != 0) {
      // - we have a user-specified filename (not 'automatic'), or
      //
      // the complete filename was already built in 'OutputBuildFileName' because we have
@@ -2451,11 +2476,11 @@ RC OUTPUT_SaveResults(ENGINE_CONTEXT *pEngineContext,INDEX indexFenoColumn)
 
   // Rebuild spectrum for fluxes and color indexes computation
 
-  if ((pRecordInfo->NSomme!=0) && (pRecordInfo->Tint!=(double)0.)) {
+  if ((pRecordInfo->NSomme!=0) && (pRecordInfo->TotalExpTime!=(double)0.)) {
     double *Spectrum= pEngineContext->buffers.spectrum;
 
     for (int i=0;i<n_wavel;i++)
-      Spectrum[i]/=(double)pRecordInfo->Tint;
+      Spectrum[i]*=(double)pRecordInfo->NSomme/pRecordInfo->TotalExpTime;
   }
 
   if (outputNbRecords<pEngineContext->recordNumber)

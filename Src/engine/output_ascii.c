@@ -19,7 +19,7 @@ static void OutputAscPrintTitles(FILE *fp);
 static int total_records=0;
 
 /*! \brief Open ascii file */
-RC ascii_open(const ENGINE_CONTEXT *pEngineContext, char *filename) {
+RC ascii_open(const ENGINE_CONTEXT *pEngineContext, const char *filename) {
 
  char *ptr;
 
@@ -45,9 +45,17 @@ RC ascii_open(const ENGINE_CONTEXT *pEngineContext, char *filename) {
 
     if (size == 0) { // we have a new output file -> print column titles etc
       // Satellites measurements and automatic reference selection : save information on the selected reference
-      if(pProject->instrumental.readOutFormat==PRJCT_INSTR_FORMAT_OMI
-         && pEngineContext->analysisRef.refAuto
-         && pEngineContext->project.asciiResults.referenceFlag) {
+      if ( ( pProject->instrumental.readOutFormat==PRJCT_INSTR_FORMAT_GDP_ASCII ||
+             pProject->instrumental.readOutFormat==PRJCT_INSTR_FORMAT_GDP_BIN ||
+             pProject->instrumental.readOutFormat==PRJCT_INSTR_FORMAT_SCIA_PDS ||
+             pProject->instrumental.readOutFormat==PRJCT_INSTR_FORMAT_GOME2 )
+           && pEngineContext->analysisRef.refAuto)  // automatic reference is requested for at least one analysis window
+        {
+          fprintf(output_file, "%c Reference file\n%c %s\n", COMMENT_CHAR, COMMENT_CHAR, OUTPUT_refFile);
+          fprintf(output_file, "%c Number of records selected for the reference\n%c %d\n",COMMENT_CHAR, COMMENT_CHAR, OUTPUT_nRec);
+        } else if(pProject->instrumental.readOutFormat==PRJCT_INSTR_FORMAT_OMI
+                  && pEngineContext->analysisRef.refAuto
+                  && pEngineContext->project.asciiResults.referenceFlag) {
         write_automatic_reference_info(output_file);
       }
       if(calib_num_fields)
@@ -371,18 +379,20 @@ void ascii_write_spectra_data(const bool selected_records[], int num_records)
 static void write_automatic_reference_info(FILE *fp)
 {
   for(int analysiswindow = 0; analysiswindow < NFeno; analysiswindow++ ){
-    for(int row=0; row< ANALYSE_swathSize; ++row ) {
-      FENO *pTabFeno = &TabFeno[row][analysiswindow];
-      if (!pTabFeno->hidden
-          && pTabFeno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC
-          && pTabFeno->ref_description != NULL) {
-        fprintf(fp, "%c %s, row %d: automatic reference:\n%s\n",
-                COMMENT_CHAR,
-                pTabFeno->windowName,
-                row,
-                pTabFeno->ref_description);
+    for(int row=0; row< OMI_TOTAL_ROWS; row++ )
+      {
+        FENO *pTabFeno = &TabFeno[row][analysiswindow];
+        if (!pTabFeno->hidden
+            && pTabFeno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC
+            && pTabFeno->ref_description != NULL)
+          {
+            fprintf(fp, "%c %s, row %d: automatic reference:\n%s\n",
+                    COMMENT_CHAR,
+                    pTabFeno->windowName,
+                    row,
+                    pTabFeno->ref_description);
+          }
       }
-    }
   }
 }
 

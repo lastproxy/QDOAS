@@ -38,7 +38,7 @@ typedef struct _prjctSpectra {
          maxGraphH,                                                             // QDOAS obsolete field !!! : maximum number of graphs in width a graphic page can hold
          mode;
   int    fieldsNumber;                                                          // number of ascii flags set in the next list
-  int    fieldsFlag[PRJCT_RESULTS_MAX];                                         // fields used in ascii format
+  char fieldsFlag[PRJCT_RESULTS_MAX];                                         // fields used in ascii format
 } PRJCT_SPECTRA;
 
 // -----------------
@@ -178,7 +178,6 @@ typedef struct _prjctInstrumental
   PRJCT_ASCII ascii;
   PRJCT_SAOZ  saoz;
   PRJCT_GOME  gome;
-  PRJCT_GOME  gomenetcdf;
   PRJCT_SCIA  scia;
   PRJCT_OMI   omi;
   PRJCT_MFC   mfc;
@@ -187,6 +186,7 @@ typedef struct _prjctInstrumental
   int         offsetFlag;
   double      lambdaMin,lambdaMax;
   float       opusTimeShift;
+  char       fileExt[50];
  }
 PRJCT_INSTRUMENTAL;
 
@@ -211,13 +211,13 @@ PRJCT_RESULTS_FIELDS;
 // ----------------------------------
 
 struct _prjctAsciiResults {
-  char path[MAX_ITEM_TEXT_LEN];                                                 // path for results and fits files
+  char path[MAX_ITEM_TEXT_LEN];                                               // path for results and fits files
   int   analysisFlag,calibFlag,referenceFlag,dirFlag,fileNameFlag,successFlag;  // store results in ascii format
-  char fluxes[MAX_ITEM_TEXT_LEN];                                               // fluxes
+  char fluxes[MAX_ITEM_TEXT_LEN];                                             // fluxes
   double bandWidth;                                                             // averaging bandwidth for fluxes
-  // char cic[MAX_ITEM_TEXT_LEN];                                               // color indexes
+  // char cic[MAX_ITEM_TEXT_LEN];                                                // color indexes
   int fieldsNumber;                                                             // number of ascii flags set in the next list
-  int fieldsFlag[PRJCT_RESULTS_MAX];                                            // fields used in output
+  char fieldsFlag[PRJCT_RESULTS_MAX];                                           // fields used in output
   enum output_format file_format;
   char swath_name[HDFEOS_OBJ_LEN_MAX];
 };
@@ -229,7 +229,7 @@ struct _prjctExport {
   char path[MAX_ITEM_TEXT_LEN];                                                 // path for ASCII files
   int   lambdaFlag,spectraFlag,titlesFlag,directoryFlag;                        // additional options
   int fieldsNumber;                                                             // number of ascii flags set in the next list
-  int fieldsFlag[PRJCT_RESULTS_MAX];                                           // fields used in output
+  char fieldsFlag[PRJCT_RESULTS_MAX];                                           // fields used in output
 } ;
 
 // Buffers specific to CCD
@@ -248,34 +248,28 @@ struct _ccd {
   float         wve1,wve2,flux1,flux2;
 };
 
-// Record information specific to MAXDOAS format
+// Record information specific to ASCII format
 
-typedef struct _maxdoasformat
+typedef struct _ascformat
  {
-  int scanIndex;           // for FRM4DOAS netCDF file
-  int zenithBeforeIndex;   // for FRM4DOAS netCDF file
-  int zenithAfterIndex;    // for FRM4DOAS netCDF file
   int measurementType;
  }
-MAXDOAS;
+ASCFORMAT;
 
 // common location data for satellite instruments
 struct satellite_location {
-  double cornerlats[4], cornerlons[4]; // pixel corner coordinates
   double latitude, longitude; // coordinates of sub-satellite point
   double altitude;
   double earth_radius;
   double sza, saa; // solar zenith/azimuth angles at satellite height
-  double vza, vaa;
-  double cloud_top_pressure;
-  double cloud_fraction;
+  double vza;
   int orbit_number;
 };
 
 // Record information specific to the GOME format
 
 typedef struct _gomeData                                                        // data on the current GOME pixel
-{
+ {
   int   pixelNumber;                                                            // pixel number
   int   pixelType;                                                              // pixel type
 
@@ -284,17 +278,18 @@ typedef struct _gomeData                                                        
 
   int     nRef;                                                                 // size of irradiance vectors
 
+  float longit[5];                                                              // longitudes (four corners of the GOME pixel + pixel centre)
+  float latit[5];                                                               // latitudes (four corners of the GOME pixel + pixel centre)
   float sza[3];                                                                 // solar zenith angles (East, center and west points of the GOME pixel)
   float azim[3];                                                                // solar azimuth angles (East, center and west points of the GOME pixel)
-  float vza[3];
-  float vaa[3];
-}
+ }
 GOME_DATA;
 
 // Record information specific to SCIAMACHY
 
 typedef struct _sciamachy
  {
+  double longitudes[4],latitudes[4];                                            // geolocations at the 4 corners of the pixels
   float  solZen[3],solAzi[3],losZen[3],losAzi[3];                               // resp. solar and line of sight zenith and azimuth angles
   INDEX  stateIndex,stateId;                                                    // information on the state
   int    qualityFlag;
@@ -305,6 +300,7 @@ SCIA_DATA;
 
 typedef struct _gome2
 {
+  double longitudes[4],latitudes[4];                                            // geolocations at the 4 corners of the pixels
   double solZen[3],solAzi[3],losZen[3],losAzi[3];                               // resp. solar and line of sight zenith and azimuth angles
 
   int    saaFlag;
@@ -442,12 +438,9 @@ typedef struct _engineBuffers
          *specMax,                                                              // maxima of signal over scans
          *instrFunction,                                                        // instrumental function
          *varPix,                                                               // variability interpixel
-         *scanRef;                                                              // reference spectrum for the scan (MAXDOAS measurements, MKZY format)
+         *scanRef;                                                              // reference spectrum for the scan (MAXDOAS measurements)
 
-  INDEX  *scanIndexes;
-  INDEX  *zenithBeforeIndexes;
-  INDEX  *zenithAfterIndexes;
-  uint32_t  *recordIndexes;                                                     // indexes of records for direct access (specific to BIRA-IASB spectra file format)
+  uint32_t  *recordIndexes;                                                      // indexes of records for direct access (specific to BIRA-IASB spectra file format)
   MATRIX_OBJECT dnl;                                                            // correction for the non linearity of the detector
  }
 BUFFERS;
@@ -501,7 +494,7 @@ typedef struct _engineRecordInfo
 
   int    useErrors;                                                             // 1 if errors are present in the files (GOME)
   int    coolingStatus,mirrorError;                                             // only for OHP measurements (September 2008)
-  int    i_alongtrack, i_crosstrack;                                            // for imagers (OMI/APEX/Tropomi/...)
+  int    i_alongtrack, i_crosstrack, n_alongtrack, n_crosstrack;                // for imagers (OMI/APEX/Tropomi/...)
   INDEX  indexBand;                                                             // index of the band
 
   struct satellite_location satellite;                                          // satellite location data
@@ -520,11 +513,13 @@ typedef struct _engineRecordInfo
   UOFT_DATA uoft;
   UAVBIRA_DATA uavBira;
   CCD    ccd;    // !!! This field should always be the last one -> cfr. ENGINE_CopyContext
-  MAXDOAS maxdoas;
+  ASCFORMAT asc;
 
   double longitude;                                                             // longitude
   double latitude;                                                              // latitude
   double altitude;                                                              // altitude
+  double cloudFraction;
+  double cloudTopPressure;
 
                                                                                 // SAOZ
 
@@ -546,8 +541,6 @@ typedef struct _engineRecordInfo
 
   char  refFileName[DOAS_MAX_PATH_LEN+1];
   int    refRecord;
-  RC rc;
-
  }
 RECORD_INFO;
 
@@ -570,8 +563,6 @@ typedef struct _analysisRef
  	int nRef;
  	int zmMinIndex;
  	int zmMaxIndex;
- 	int zenBefIndex;
- 	int zenAftIndex;
 
  	int indexScanBefore;
  	int indexScanAfter;
@@ -658,12 +649,9 @@ struct _engineContext
   INDEX   lastRefRecord;
   int     lastSavedRecord;
   int     satelliteFlag;
-  int     maxdoasFlag;
-  int     maxdoasScanIndexFlag;                                                 // determine the scan index takes time; could be disabled if not requested
   int     mfcDoasisFlag;                                                        // MFC original format generated by DOASIS is very specific with individual files per spectrum
-  int     n_alongtrack, n_crosstrack;
 
-  int     refFlag;
+  int     refFlag;                                                              // this flag is set when the reference spectrum is retrieved from spectra files
 
   CALIB_FENO        calibFeno;                                                  // transfer of wavelength calibration options from the project mediator to the analysis mediator
    const char   *outputPath;                                                           // pointer to the output path (from export or output part of the project)

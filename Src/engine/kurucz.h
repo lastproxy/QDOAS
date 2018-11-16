@@ -16,7 +16,6 @@ struct _KuruczFeno {
   int            *nIter;
   bool           have_calibration; // "true" if this struct contains results.
   double         preshift;
-  int            rc;
 };
 
 struct _Kurucz {

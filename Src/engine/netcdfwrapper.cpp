@@ -1,6 +1,5 @@
 #include "netcdfwrapper.h"
 
-
 #include <stdexcept>
 #include <cassert>
 #include <iostream>
@@ -42,11 +41,10 @@ bool NetCDFGroup::hasAttr(const string& attrName, int varid) const {
 int NetCDFGroup::varID(const string& varName) const {
   int id;
   int rc = nc_inq_varid(groupid, varName.c_str(), &id);
-
   if(rc == NC_NOERR) {
     return id;
   } else {
-    return -1;
+    throw std::runtime_error("Cannot find netCDF variable '"+name+"/"+varName+"'");
   }
 }
 
@@ -55,7 +53,7 @@ int NetCDFGroup::numDims(int varid) const {
   if (nc_inq_varndims(groupid, varid, &ndims) == NC_NOERR) {
     return ndims;
   } else {
-    return -1;
+    throw std::runtime_error("Cannot get number of dimensions for variable '" + varName(varid) + "'");
   }
 }
 
@@ -148,22 +146,9 @@ NetCDFFile& NetCDFFile::operator=(NetCDFFile &&other) {
   return *this;
 }
 
-#define NEW_CACHE_SIZE 32000000
-#define NEW_CACHE_NELEMS 2000
-#define NEW_CACHE_PREEMPTION .75
-
 static int openNetCDF(const string &filename, int mode) {
   int groupid;
-
-  int rc;
-
-  /* Change chunk cache. */
-
-  if ((mode==NC_NOWRITE) &&
-     ((rc=nc_set_chunk_cache(NEW_CACHE_SIZE, NEW_CACHE_NELEMS,
-          NEW_CACHE_PREEMPTION))==NC_NOERR))
-
-   rc = nc_open(filename.c_str(), mode, &groupid);
+  int rc = nc_open(filename.c_str(), mode, &groupid);
 
   if (rc != NC_NOERR && mode != NC_NOWRITE) {
     // file doesn't exist or is not a valid NetCDF file and we are in write mode

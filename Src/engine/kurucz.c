@@ -68,7 +68,6 @@
 #include "xsconv.h"
 #include "vector.h"
 #include "winthrd.h"
-#include "output.h"
 
 // ================
 // GLOBAL VARIABLES
@@ -84,7 +83,7 @@ int KURUCZ_indexLine=1;
 
 // Given two arrays x[1..n] and y[1..n], this routine computes their correlation coefficient
 // r (returned as r), the significance level at which the null hypothesis of zero correlation is
-// disproved (prob whose small value indicates a significant correlation), and Fisherï¿½s z (returned
+// disproved (prob whose small value indicates a significant correlation), and Fisher’s z (returned
 // as z), whose value can be used in further statistical tests as described above.
 
 // Reference : Numerical Recipes in C
@@ -123,10 +122,10 @@ double corrcoef(double *x,double *y,int n)
 
   r=sxy/(sqrt(sxx*syy)+TINY);
 
-  // *z=0.5*log((1.0+(*r)+TINY)/(1.0-(*r)+TINY)); Fisherï¿½s z transformation.
+  // *z=0.5*log((1.0+(*r)+TINY)/(1.0-(*r)+TINY)); Fisher’s z transformation.
   // df=n-2;
   // t=(*r)*sqrt(df/((1.0-(*r)+TINY)*(1.0+(*r)+TINY))); Equation (14.5.5).
-  // *prob=betai(0.5*df,0.5,df/(df+t*t)); Studentï¿½s t probability.
+  // *prob=betai(0.5*df,0.5,df/(df+t*t)); Student’s t probability.
 /* *prob=erfcc(fabs((*z)*sqrt(n-1.0))/1.4142136) */
  // For large n, this easier computation of prob, using the short routine erfcc, would give approximately
  // the same value.
@@ -159,7 +158,7 @@ double ShiftCorrel(double *lambda,double *ref,double *spec,double *spec2,double 
   // Interpolate the spectrum on the original wavelength calibration
 
   if (!(rc=SPLINE_Deriv2(&lambdas[imin],&spec[imin],&spec2[imin],npix,__func__)) &&
-      !(rc=SPLINE_Vector(&lambdas[imin],&spec[imin],&spec2[imin],npix,&lambda[imin],&specInt[imin],npix,PRJCT_ANLYS_INTERPOL_SPLINE)))
+      !(rc=SPLINE_Vector(&lambdas[imin],&spec[imin],&spec2[imin],npix,&lambda[imin],&specInt[imin],npix,PRJCT_ANLYS_INTERPOL_SPLINE,__func__)))
 
    correl=(double)1.-corrcoef(&ref[imin],&specInt[imin],npix);
 
@@ -747,41 +746,24 @@ RC KuruczConvolveSolarSpectrum(MATRIX_OBJECT *pSolar,double *newlambda,int n_wav
 
     pSlitMatrix=&slitMatrix[0];
 
-    if (MATRIX_Allocate(pSlitMatrix,nl,nc,0,0,1,__func__))
-      rc=ERROR_ID_ALLOC;
-    else {
+ 	  if (MATRIX_Allocate(pSlitMatrix,nl,nc,0,0,1,__func__))
+ 	   rc=ERROR_ID_ALLOC;
+    else
+     {
       // make a backup of the matrix
+
       for (i=0;i<nc;i++)
         memcpy(pSlitMatrix->matrix[i],KURUCZ_buffers[indexFenoColumn].slitFunction.matrix[i],sizeof(double)*nl);
 
-      // determine slit center wavelength, defined as wavelength
-      // corresponding to the maximum value
-      //
-      // TODO: for low-sampled slit functions, lambda of maximum
-      // might not be a good measure of the center => perform an
-      // interpolation here and in KuruczConvolveSolarSpectrum.
-      double lambda_center = 0.;
-      double slit_max = 0.;
-      for (int i=shiftIndex; i<pSlitMatrix->nl; ++i) {
-        if (pSlitMatrix->matrix[1][i] > slit_max) {
-          slit_max = pSlitMatrix->matrix[1][i];
-          lambda_center = pSlitMatrix->matrix[0][i];
-        }
-      }
+ 	    // Apply the stretch on the slit wavelength calibration
 
-      // Apply the stretch on the slit wavelength calibration
-      for (i=shiftIndex;i<pSlitMatrix->nl;i++) {
-        // stretch wavelength grid around the center wavelength,
-        // using fwhmStretch1 on the left, and fwhmStretch2 on the
-        // right:
-        double delta_lambda = pSlitMatrix->matrix[0][i] - lambda_center;
-        delta_lambda *= (delta_lambda < 0.) ? fwhmStretch1 : fwhmStretch2;
-        pSlitMatrix->matrix[0][i]= lambda_center + delta_lambda;
-      }
+ 	    for (i=shiftIndex;i<pSlitMatrix->nl;i++)
+        pSlitMatrix->matrix[0][i]=(pSlitMatrix->matrix[0][i]<(double)0.)?fwhmStretch1*KURUCZ_buffers[indexFenoColumn].slitFunction.matrix[0][i]:fwhmStretch2*KURUCZ_buffers[indexFenoColumn].slitFunction.matrix[0][i];
 
-      // Recalculate second derivatives and the FWHM
-      for (i=1;i<pSlitMatrix->nc;i++)
-        rc=SPLINE_Deriv2(pSlitMatrix->matrix[0]+shiftIndex,pSlitMatrix->matrix[i]+shiftIndex,pSlitMatrix->deriv2[i]+shiftIndex,pSlitMatrix->nl-shiftIndex,__func__);
+ 	    // Recalculate second derivatives and the FWHM
+
+ 	    for (i=1;i<pSlitMatrix->nc;i++)
+        rc=SPLINE_Deriv2(pSlitMatrix->matrix[0]+shiftIndex,pSlitMatrix->matrix[1]+shiftIndex,pSlitMatrix->deriv2[i]+shiftIndex,pSlitMatrix->nl-shiftIndex,__func__);
      }
    }
   else
@@ -1113,8 +1095,8 @@ RC KURUCZ_Spectrum(const double *oldLambda,double *newLambda,double *spectrum,co
       if ((pKurucz->hrSolar.nl==n_wavel) && VECTOR_Equal(pKurucz->hrSolar.matrix[0],oldLambda,n_wavel,(double)1.e-7))
         memcpy(solar,pKurucz->hrSolar.matrix[1],sizeof(double)*n_wavel);
       else
-        SPLINE_Vector(pKurucz->hrSolar.matrix[0],pKurucz->hrSolar.matrix[1],pKurucz->hrSolar.deriv2[1],pKurucz->hrSolar.nl,
-                      oldLambda,solar,n_wavel,pAnalysisOptions->interpol);
+        rc=SPLINE_Vector(pKurucz->hrSolar.matrix[0],pKurucz->hrSolar.matrix[1],pKurucz->hrSolar.deriv2[1],pKurucz->hrSolar.nl,
+                         oldLambda,solar,n_wavel,pAnalysisOptions->interpol,__func__);
     } else {
       // 20130208 : a high resolution spectrum is now loaded from the slit page of project properties and convolved
       rc=ANALYSE_ConvoluteXs(NULL,ANLYS_CROSS_ACTION_CONVOLUTE,(double)0.,&pKurucz->hrSolar,
@@ -1197,7 +1179,7 @@ RC KURUCZ_Spectrum(const double *oldLambda,double *newLambda,double *spectrum,co
     DEBUG_Start(ENGINE_dbgFile,"Kurucz",DEBUG_FCTTYPE_MATH|DEBUG_FCTTYPE_APPL,5,DEBUG_DVAR_YES,0); // !debugResetFlag++);
 #endif
 
-    if (((rc=ANALYSE_SvdInit(&TabFeno[indexFenoColumn][pKurucz->indexKurucz], &subwindow_fit[indexWindow], n_wavel, Lambda))!=ERROR_ID_NO) ||
+    if (((rc=ANALYSE_SvdInit(&TabFeno[indexFenoColumn][pKurucz->indexKurucz], &subwindow_fit[indexWindow], n_wavel))!=ERROR_ID_NO) ||
 
         // Analysis method
 
@@ -1216,8 +1198,6 @@ RC KURUCZ_Spectrum(const double *oldLambda,double *newLambda,double *spectrum,co
 #if defined(__DEBUG_) && __DEBUG_
     DEBUG_Stop("Kurucz");
 #endif
-
-
 
     // Fill A SVD system
 
@@ -1316,8 +1296,6 @@ RC KURUCZ_Spectrum(const double *oldLambda,double *newLambda,double *spectrum,co
     pKurucz->KuruczFeno[indexFeno].chiSquare[indexWindow]=Square;
     pKurucz->KuruczFeno[indexFeno].rms[indexWindow]=(Square>(double)0.)?sqrt(Square):(double)0.;
     pKurucz->KuruczFeno[indexFeno].nIter[indexWindow]=NIter[indexWindow];
-
-    pKurucz->KuruczFeno[indexFeno].rc=rc;
   }  // End for (indexWindow=...
 
   if (rc)
@@ -1409,7 +1387,6 @@ RC KURUCZ_Spectrum(const double *oldLambda,double *newLambda,double *spectrum,co
     // Display residual
 
     if (pKurucz->displayResidual) {
-
       if (ANALYSE_swathSize==1)
         strcpy(string,"Residual");
       else
@@ -1789,7 +1766,8 @@ RC KURUCZ_ApplyCalibration(FENO *pTabFeno,double *newLambda,INDEX indexFenoColum
 #if defined(__BC32_) && __BC32_
 #pragma argsused
 #endif
-RC KURUCZ_Reference(double *instrFunction,INDEX refFlag,int saveFlag,int gomeFlag,void *responseHandle,INDEX indexFenoColumn) {
+RC KURUCZ_Reference(double *instrFunction,INDEX refFlag,int saveFlag,int gomeFlag,void *responseHandle,INDEX indexFenoColumn)
+{
   // Declarations
 
   FENO            *pTabFeno,*pTabRef,                                           // browse analysis windows
@@ -1825,147 +1803,168 @@ RC KURUCZ_Reference(double *instrFunction,INDEX refFlag,int saveFlag,int gomeFla
 
   // Allocate buffers
 
-  if ((reference=(double *)MEMORY_AllocDVector(__func__,"spectrum",0,n_wavel-1))==NULL)
-    return ERROR_ID_ALLOC;
+  if ((reference=(double *)MEMORY_AllocDVector("KURUCZ_Reference ","spectrum",0,n_wavel-1))==NULL)
+    rc=ERROR_ID_ALLOC;
+  else
+   {
+    // Browse analysis windows and apply Kurucz alignment on the specified reference spectrum if needed
 
-  // Browse analysis windows and apply Kurucz alignment on the specified reference spectrum if needed
+    for (indexFeno=0,nKuruczFeno=nBadKuruczFeno=0;indexFeno<NFeno;indexFeno++)
+     {
+      pTabFeno=&TabFeno[indexFenoColumn][indexFeno];
 
-  for (indexFeno=0,nKuruczFeno=nBadKuruczFeno=0;indexFeno<NFeno;indexFeno++) {
-    pTabFeno=&TabFeno[indexFenoColumn][indexFeno];
-
-    if (!pTabFeno->hidden && ((pTabFeno->useKurucz==ANLYS_KURUCZ_REF) || (pTabFeno->useKurucz==ANLYS_KURUCZ_REF_AND_SPEC)) &&
-        (pTabFeno->gomeRefFlag==gomeFlag) &&
+      if (!pTabFeno->hidden && ((pTabFeno->useKurucz==ANLYS_KURUCZ_REF) || (pTabFeno->useKurucz==ANLYS_KURUCZ_REF_AND_SPEC)) &&
+          (pTabFeno->gomeRefFlag==gomeFlag) &&
         ((!refFlag && (pTabFeno->useEtalon || (pTabFeno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_FILE))) ||
          ((refFlag==1) && !pTabFeno->useEtalon)))
 
-      nKuruczFeno++;
-  }
+       nKuruczFeno++;
+     }
 
-  for (indexFeno=0;indexFeno<NFeno;indexFeno++) {
-    pTabFeno=&TabFeno[indexFenoColumn][indexFeno];
+    for (indexFeno=0;indexFeno<NFeno;indexFeno++)
+     {
+      pTabFeno=&TabFeno[indexFenoColumn][indexFeno];
 
-    if (!pTabFeno->hidden && ((pTabFeno->useKurucz==ANLYS_KURUCZ_REF) || (pTabFeno->useKurucz==ANLYS_KURUCZ_REF_AND_SPEC)) &&
-        (pTabFeno->gomeRefFlag==gomeFlag) &&
+      if (!pTabFeno->hidden && ((pTabFeno->useKurucz==ANLYS_KURUCZ_REF) || (pTabFeno->useKurucz==ANLYS_KURUCZ_REF_AND_SPEC)) &&
+          (pTabFeno->gomeRefFlag==gomeFlag) &&
         ((!refFlag && (pTabFeno->useEtalon || (pTabFeno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_FILE))) ||
-         ((refFlag==1) && !pTabFeno->useEtalon))) {
-      memcpy(reference,(pTabFeno->useEtalon)?pTabFeno->SrefEtalon:pTabFeno->Sref,sizeof(double)*pTabFeno->NDET);
+         ((refFlag==1) && !pTabFeno->useEtalon)))
+       {
+       	memcpy(reference,(pTabFeno->useEtalon)?pTabFeno->SrefEtalon:pTabFeno->Sref,sizeof(double)*pTabFeno->NDET);
 
-      if ((pTabFeno->NDET==pKurucz->hrSolar.nl) &&
-          VECTOR_Equal(pKurucz->hrSolar.matrix[0],pTabFeno->LambdaRef,pTabFeno->NDET,(double)1.e-7) &&
-          VECTOR_Equal(pKurucz->hrSolar.matrix[1],reference,pTabFeno->NDET,(double)1.e-7)) {
-        // Reference spectrum equals high-resolution spectrum for Kurucz -> skip calibration.
+       	if ((pTabFeno->NDET==pKurucz->hrSolar.nl) &&
+       	     VECTOR_Equal(pKurucz->hrSolar.matrix[0],pTabFeno->LambdaRef,pTabFeno->NDET,(double)1.e-7) &&
+       	     VECTOR_Equal(pKurucz->hrSolar.matrix[1],reference,pTabFeno->NDET,(double)1.e-7))
 
-        pTabFeno->rcKurucz=ERROR_ID_NO;
-      } else {
+       	 pTabFeno->rcKurucz=ERROR_ID_NO;
+       	else
+       	 {
+       	  // Apply instrumental corrections on reference spectrum
 
-        // If we have already calibrated an identical reference spectrum in another analysis window, re-use those results:
-        // Apply instrumental corrections on reference spectrum
-        if (((indexRef=KuruczSearchReference(indexFeno,indexFenoColumn))<NFeno) && (indexRef!=indexFeno) &&
-            ((indexRef<indexFeno) ||
-             ((refFlag && !pTabFeno->useEtalon) && ((TabFeno[indexFenoColumn][indexRef].refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_FILE) || TabFeno[indexFenoColumn][indexRef].useEtalon)))) {
-          int Nb_Win=KURUCZ_buffers[indexFenoColumn].Nb_Win;
-          int indexWindow;
+          if (((indexRef=KuruczSearchReference(indexFeno,indexFenoColumn))<NFeno) && (indexRef!=indexFeno) &&
+              ((indexRef<indexFeno) ||
+              ((refFlag && !pTabFeno->useEtalon) && ((TabFeno[indexFenoColumn][indexRef].refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_FILE) || TabFeno[indexFenoColumn][indexRef].useEtalon))))
+           {
+           	int Nb_Win=KURUCZ_buffers[indexFenoColumn].Nb_Win;
+           	int indexWindow;
 
-          pTabRef=&TabFeno[indexFenoColumn][indexRef];
-          pTabFeno->rcKurucz=pTabRef->rcKurucz;
+            pTabRef=&TabFeno[indexFenoColumn][indexRef];
+            pTabFeno->rcKurucz=pTabRef->rcKurucz;
 
-          memcpy(pTabFeno->LambdaK,pTabRef->LambdaK,sizeof(double)*pTabFeno->NDET);
-          memcpy(pKurucz->KuruczFeno[indexFeno].rms,pKurucz->KuruczFeno[indexRef].rms,sizeof(double)*Nb_Win);
-          memcpy(pKurucz->KuruczFeno[indexFeno].chiSquare,pKurucz->KuruczFeno[indexRef].chiSquare,sizeof(double)*Nb_Win);
-          memcpy(pKurucz->KuruczFeno[indexFeno].wve,pKurucz->KuruczFeno[indexRef].wve,sizeof(double)*Nb_Win);
-          memcpy(pKurucz->KuruczFeno[indexFeno].nIter,pKurucz->KuruczFeno[indexRef].nIter,sizeof(int)*Nb_Win);
+            memcpy(pTabFeno->LambdaK,pTabRef->LambdaK,sizeof(double)*pTabFeno->NDET);
+            memcpy(pKurucz->KuruczFeno[indexFeno].rms,pKurucz->KuruczFeno[indexRef].rms,sizeof(double)*Nb_Win);
+            memcpy(pKurucz->KuruczFeno[indexFeno].chiSquare,pKurucz->KuruczFeno[indexRef].chiSquare,sizeof(double)*Nb_Win);
+            memcpy(pKurucz->KuruczFeno[indexFeno].wve,pKurucz->KuruczFeno[indexRef].wve,sizeof(double)*Nb_Win);
+            memcpy(pKurucz->KuruczFeno[indexFeno].nIter,pKurucz->KuruczFeno[indexRef].nIter,sizeof(int)*Nb_Win);
 
-          memcpy(pKurucz->KuruczFeno[indexFeno].chiSquare,pKurucz->KuruczFeno[indexRef].chiSquare,sizeof(double)*Nb_Win);
+            memcpy(pKurucz->KuruczFeno[indexFeno].chiSquare,pKurucz->KuruczFeno[indexRef].chiSquare,sizeof(double)*Nb_Win);
 
-          if (TabFeno[indexFenoColumn][pKurucz->indexKurucz].NTabCross)
-            for (indexWindow=0;indexWindow<Nb_Win;indexWindow++)
+            if (TabFeno[indexFenoColumn][pKurucz->indexKurucz].NTabCross)
+             for (indexWindow=0;indexWindow<Nb_Win;indexWindow++)
               memcpy(pKurucz->KuruczFeno[indexFeno].results[indexWindow],pKurucz->KuruczFeno[indexRef].results[indexWindow],sizeof(CROSS_RESULTS)*TabFeno[indexFenoColumn][pKurucz->indexKurucz].NTabCross);
 
-          if (pKuruczOptions->fwhmFit) {
-            for (maxParam=0;maxParam<MAX_KURUCZ_FWHM_PARAM;maxParam++)
-              if (pTabFeno->fwhmVector[maxParam]!=NULL) {
-                memcpy(pTabFeno->fwhmPolyRef[maxParam],pTabRef->fwhmPolyRef[maxParam],sizeof(double)*(pKuruczOptions->fwhmPolynomial+1));
-                memcpy(pTabFeno->fwhmVector[maxParam],pTabRef->fwhmVector[maxParam],sizeof(double)*n_wavel);
-                if (pTabFeno->fwhmDeriv2[maxParam]!=NULL)
-                  memcpy(pTabFeno->fwhmDeriv2[maxParam],pTabRef->fwhmDeriv2[maxParam],sizeof(double)*n_wavel);
-              }
-              else
-                break;
-          }
-        } else { // We have not yet calibrated this reference spectrum:
-
-          // Calculate preshift
-          if (pKuruczOptions->preshiftFlag && !(rc=MATRIX_Allocate(&calibratedMatrix,n_wavel,2,0,0,0,__func__))) {
-            // Get solar spectrum
-
-            memcpy(calibratedMatrix.matrix[0],pTabFeno->LambdaRef,n_wavel*sizeof(double));
-
-            // For tests  --- MATRIX_Load("D:/My_GroundBased_Activities/GB_Stations/Bruxelles/miniDOAS_Uccle/BX_SPE_20131108_285.REF",&calibratedMatrix,pTabFeno->NDET,2,0.,0.,0,0,__func__);   // FOR TESTS
-
             if (pKuruczOptions->fwhmFit)
-              rc=KuruczConvolveSolarSpectrum(&calibratedMatrix,pTabFeno->LambdaRef,n_wavel,indexFenoColumn);
-            else
-              SPLINE_Vector(pKurucz->hrSolar.matrix[0],pKurucz->hrSolar.matrix[1],pKurucz->hrSolar.deriv2[1],pKurucz->hrSolar.nl,pTabFeno->LambdaRef,calibratedMatrix.matrix[1],n_wavel,pAnalysisOptions->interpol);
+             {
+              for (maxParam=0;maxParam<MAX_KURUCZ_FWHM_PARAM;maxParam++)
+               if (pTabFeno->fwhmVector[maxParam]!=NULL)
+                {
+                 memcpy(pTabFeno->fwhmPolyRef[maxParam],pTabRef->fwhmPolyRef[maxParam],sizeof(double)*(pKuruczOptions->fwhmPolynomial+1));
+                 memcpy(pTabFeno->fwhmVector[maxParam],pTabRef->fwhmVector[maxParam],sizeof(double)*n_wavel);
+                 if (pTabFeno->fwhmDeriv2[maxParam]!=NULL)
+                  memcpy(pTabFeno->fwhmDeriv2[maxParam],pTabRef->fwhmDeriv2[maxParam],sizeof(double)*n_wavel);
+                }
+               else
+                break;
+             }
+           }
+          else
+           {
+           	// Calculate preshift
 
-            // Calculate preshift
+           	if (pKuruczOptions->preshiftFlag && !(rc=MATRIX_Allocate(&calibratedMatrix,n_wavel,2,0,0,0,__func__)))
+           	 {
+           	 	// Get solar spectrum
 
-            if (!rc &&
-                !(rc=KuruczCalculatePreshift(calibratedMatrix.matrix[0],calibratedMatrix.matrix[1],reference,pTabFeno->NDET,pKuruczOptions->preshiftMin,pKuruczOptions->preshiftMax,0.2,(double)pKuruczOptions->lambdaLeft,(double)pKuruczOptions->lambdaRight,&pTabFeno->preshift))) {
-              if ((pKuruczFeno->indexSpectrum!=ITEM_NONE) && (TabCross[Feno->indexSpectrum].FitShift!=ITEM_NONE))
-                TabCross[Feno->indexSpectrum].InitShift=pTabFeno->preshift;
-              if ((pKuruczFeno->indexReference!=ITEM_NONE) && (TabCross[Feno->indexReference].FitShift!=ITEM_NONE)) {
-                pTabFeno->preshift=-pTabFeno->preshift;
-                TabCross[Feno->indexReference].InitShift=pTabFeno->preshift;
-              }
-            }
+           	 	memcpy(calibratedMatrix.matrix[0],pTabFeno->LambdaRef,n_wavel*sizeof(double));
 
-            MATRIX_Free(&calibratedMatrix,__func__);
-          }
+           	 	// For tests  --- MATRIX_Load("D:/My_GroundBased_Activities/GB_Stations/Bruxelles/miniDOAS_Uccle/BX_SPE_20131108_285.REF",&calibratedMatrix,pTabFeno->NDET,2,0.,0.,0,0,"KURUCZ_Reference");   // FOR TESTS
 
-          // Apply Kurucz for building new calibration for reference
-          if ((rc=pTabFeno->rcKurucz=KURUCZ_Spectrum(pTabFeno->LambdaRef,pTabFeno->LambdaK,reference,pKurucz->solar,instrFunction,
-                                                     1,pTabFeno->windowName,pTabFeno->fwhmPolyRef,pTabFeno->fwhmVector,pTabFeno->fwhmDeriv2,saveFlag,indexFeno,responseHandle,indexFenoColumn))!=ERROR_ID_NO)
+           	 	if (pKuruczOptions->fwhmFit)
+           	 	 rc=KuruczConvolveSolarSpectrum(&calibratedMatrix,pTabFeno->LambdaRef,n_wavel,indexFenoColumn);
+           	 	else
+           	 	 rc=SPLINE_Vector(pKurucz->hrSolar.matrix[0],pKurucz->hrSolar.matrix[1],pKurucz->hrSolar.deriv2[1],pKurucz->hrSolar.nl,pTabFeno->LambdaRef,calibratedMatrix.matrix[1],n_wavel,pAnalysisOptions->interpol,__func__);
 
-            goto EndKuruczReference;
+           	 	// Calculate preshift
 
-        }
+              if (!rc &&
+                 !(rc=KuruczCalculatePreshift(calibratedMatrix.matrix[0],calibratedMatrix.matrix[1],reference,pTabFeno->NDET,pKuruczOptions->preshiftMin,pKuruczOptions->preshiftMax,0.2,(double)pKuruczOptions->lambdaLeft,(double)pKuruczOptions->lambdaRight,&pTabFeno->preshift)))
+               {
+               	if ((pKuruczFeno->indexSpectrum!=ITEM_NONE) && (TabCross[Feno->indexSpectrum].FitShift!=ITEM_NONE))
+               	 TabCross[Feno->indexSpectrum].InitShift=pTabFeno->preshift;
+               	if ((pKuruczFeno->indexReference!=ITEM_NONE) && (TabCross[Feno->indexReference].FitShift!=ITEM_NONE))
+               	 {
+               	 	pTabFeno->preshift=-pTabFeno->preshift;
+               	  TabCross[Feno->indexReference].InitShift=pTabFeno->preshift;
+               	 }
+               }
 
-        if (!rc && !pTabFeno->rcKurucz)
+              MATRIX_Free(&calibratedMatrix,"KURUCZ_Reference");
+             }
+
+            // Apply Kurucz for building new calibration for reference
+            if ((rc=pTabFeno->rcKurucz=KURUCZ_Spectrum(pTabFeno->LambdaRef,pTabFeno->LambdaK,reference,pKurucz->solar,instrFunction,
+                 1,pTabFeno->windowName,pTabFeno->fwhmPolyRef,pTabFeno->fwhmVector,pTabFeno->fwhmDeriv2,saveFlag,indexFeno,responseHandle,indexFenoColumn))!=ERROR_ID_NO)
+
+             goto EndKuruczReference;
+
+           }
+
+         if (!rc && !pTabFeno->rcKurucz)
           rc=KURUCZ_ApplyCalibration(pTabFeno,pTabFeno->LambdaK,indexFenoColumn);
 
-      EndKuruczReference :
+          EndKuruczReference :
 
-        if (rc>0) {
-          if (pTabFeno->rcKurucz<=THREAD_EVENT_STOP) {
-            rc=pTabFeno->rcKurucz;
-            break;
-          } else {
-            if (++nBadKuruczFeno==nKuruczFeno) {
+          if (rc>0)
+           {
+            if (pTabFeno->rcKurucz<=THREAD_EVENT_STOP)
+             {
               rc=pTabFeno->rcKurucz;
               break;
-            }
-            msgCount++;
-          }
-        }
-      }
+             }
+            else
+             {
+             	if (++nBadKuruczFeno==nKuruczFeno)
+               {
+                rc=pTabFeno->rcKurucz;
+                break;
+               }
 
-      if (pTabFeno->longPathFlag) { // !!! Anoop
-        memcpy(pTabFeno->SrefEtalon,ANALYSE_ones,sizeof(double)*n_wavel);
-        memcpy(pTabFeno->Sref,ANALYSE_ones,sizeof(double)*n_wavel);
-      }
-    }
-  }
+              msgCount++;
+             }
+           }
+         }
+
+        if (pTabFeno->longPathFlag)                                             // !!! Anoop
+         {
+          memcpy(pTabFeno->SrefEtalon,ANALYSE_ones,sizeof(double)*n_wavel);
+          memcpy(pTabFeno->Sref,ANALYSE_ones,sizeof(double)*n_wavel);
+         }
+       }
+     }
+   }
 
   if (rc<THREAD_EVENT_STOP)
-    rc=ERROR_ID_NO;
+   rc=ERROR_ID_NO;
 
   // Release allocated buffers
 
   if (reference!=NULL)
-   MEMORY_ReleaseDVector(__func__,"reference",reference,0);
+   MEMORY_ReleaseDVector("KURUCZ_Reference","reference",reference,0);
+
+  // Return
 
   return rc;
-}
+ }
 
 // ====================
 // RESOURCES MANAGEMENT
@@ -2258,18 +2257,15 @@ RC KURUCZ_Alloc(const PROJECT *pProject, const double *lambda,INDEX indexKurucz,
 
        if (rc)
         goto EndKuruczAlloc;
-       else {
+       else
+        {
+         if (pKurucz->KuruczFeno[indexFeno].subwindow_fits!=NULL)
           memset(pKurucz->KuruczFeno[indexFeno].subwindow_fits,0,Nb_Win*sizeof(*pKurucz->KuruczFeno[0].subwindow_fits));
-          if (pKuruczOptions->fwhmFit)
-            memset(pKurucz->KuruczFeno[indexFeno].fft,0,Nb_Win*sizeof(FFT));
+         if (pKurucz->KuruczFeno[indexFeno].fft!=NULL)
+          memset(pKurucz->KuruczFeno[indexFeno].fft,0,Nb_Win*sizeof(FFT));
+         if (pKurucz->KuruczFeno[indexFeno].results!=NULL)
           memset(pKurucz->KuruczFeno[indexFeno].results,0,Nb_Win*sizeof(CROSS_RESULTS *));
-
-          for (int i=0; i!=Nb_Win; ++i) { // Initialize calibration results with fill values
-            pKurucz->KuruczFeno[indexFeno].chiSquare[i] = QDOAS_FILL_DOUBLE;
-            pKurucz->KuruczFeno[indexFeno].rms[i] = QDOAS_FILL_DOUBLE;
-            pKurucz->KuruczFeno[indexFeno].wve[i] = QDOAS_FILL_DOUBLE;
-          }
-       }
+        }
 
        for (indexWindow=0;indexWindow<Nb_Win;indexWindow++) {
          struct fit_properties *subwindow_fit=&pKurucz->KuruczFeno[indexFeno].subwindow_fits[indexWindow];
@@ -2386,7 +2382,7 @@ RC KURUCZ_Alloc(const PROJECT *pProject, const double *lambda,INDEX indexKurucz,
 
     if (hFilterFlag && pKurucz->solarFGap && (lambda[n_wavel-1]-lambda[0]+1!=n_wavel) &&
      (((rc=SPLINE_Vector(pKurucz->hrSolar.matrix[0],pKurucz->hrSolar.matrix[1],pKurucz->hrSolar.deriv2[1],pKurucz->hrSolar.nl,
-                         pKurucz->lambdaF,pKurucz->solarF,n_wavel+2*pKurucz->solarFGap,pAnalysisOptions->interpol))!=0) ||
+                            pKurucz->lambdaF,pKurucz->solarF,n_wavel+2*pKurucz->solarFGap,pAnalysisOptions->interpol,__func__))!=0) ||
       ((rc=FILTER_Vector(ANALYSE_phFilter,pKurucz->solarF,pKurucz->solarF,n_wavel+2*pKurucz->solarFGap,PRJCT_FILTER_OUTPUT_LOW))!=0) ||
       ((rc=SPLINE_Deriv2(pKurucz->lambdaF,pKurucz->solarF,pKurucz->solarF2,n_wavel+2*pKurucz->solarFGap,"KURUCZ_Alloc (solarF) "))!=0)))
 

@@ -164,7 +164,11 @@ struct omi_ref_spectrum {
   double *errors;
   struct omi_orbit_file *orbit_file; // orbit file containing this spectrum
   struct omi_ref_spectrum *next; // next in the list;
+  float solarZenithAngle;
+  float latitude;
+  float longitude;
   int measurement_number;
+  int detector_row;
 };
 
 /* List of spectra to be used in the automatic reference calculation
@@ -199,7 +203,7 @@ static void omi_calculate_wavelengths(float32 wavelength_coeff[], int16 refcol, 
 static void omi_make_double(int16 mantissa[], int8 exponent[], int32 n_wavel, double* result);
 static void omi_interpolate_errors(int16 mantissa[], int32 n_wavel, double wavelengths[], double y[] );
 static RC omi_load_spectrum(int spec_type, int32 sw_id, int32 measurement, int32 track, int32 n_wavel, double *lambda, double *spectrum, double *sigma, unsigned short *pixelQualityFlags);
-static void average_spectrum(double *average, double *errors, const struct omi_ref_list *spectra, const double *wavelength_grid);
+static void average_spectrum(double *average, double *errors, struct omi_ref_list *spectra, double *wavelength_grid);
 static RC read_orbit_metadata(struct omi_orbit_file *orbit);
 
 // ===================
@@ -508,7 +512,7 @@ static bool valid_reference_file(char *spectrum_file)
   return false;
 }
 
-// Create the list of all orbit files in the same directory as the given file.
+// Create the  of all orbit files in the same directory as the given file.
 static RC read_reference_orbit_files(const char *spectrum_file) {
   RC rc = ERROR_ID_NO;
 
@@ -648,9 +652,10 @@ static void free_row_references(struct omi_ref_list *(*row_references)[NFeno][OM
  * spectra matching the search criteria for the automatic reference
  * spectrum for one or more analysis windows in a list.
  */
-static RC find_matching_spectra(const ENGINE_CONTEXT *pEngineContext, struct omi_orbit_file *orbit_file, struct omi_ref_list *(*row_references)[NFeno][OMI_TOTAL_ROWS], struct omi_ref_spectrum **first)
+static RC find_matching_spectra(ENGINE_CONTEXT *pEngineContext, struct omi_orbit_file *orbit_file, struct omi_ref_list *(*row_references)[NFeno][OMI_TOTAL_ROWS], struct omi_ref_spectrum **first)
 {
   RC rc = 0;
+  int allocs = 0;
 
   enum omi_xtrack_mode xtrack_mode = pEngineContext->project.instrumental.omi.xtrack_mode;
 
@@ -675,7 +680,12 @@ static RC find_matching_spectra(const ENGINE_CONTEXT *pEngineContext, struct omi
             // create new spectrum structure if needed.  If the spectrum is already used for another analysis window, we can reuse the existing spectrum.
             if(newref == NULL) {
               newref = malloc(sizeof (struct omi_ref_spectrum));
+              allocs++;
+              newref->solarZenithAngle = orbit_file->omiSwath->dataFields.solarZenithAngle[recordnumber];
+              newref->longitude = orbit_file->omiSwath->dataFields.longitude[recordnumber];
+              newref->latitude = orbit_file->omiSwath->dataFields.latitude[recordnumber];
               newref->measurement_number = measurement;
+              newref->detector_row = row;
               newref->next = *first;
               *first = newref; // add spectrum to the list of all spectra
               newref->orbit_file = orbit_file;
@@ -707,7 +717,7 @@ static RC find_matching_spectra(const ENGINE_CONTEXT *pEngineContext, struct omi
    in the list.  The error on the automatic reference (for each pixel)
    is calculated as 1/n_spectra * sqrt(sum (sigma_i)^2)
    */
-static void average_spectrum( double *average, double *errors, const struct omi_ref_list *spectra, const double *wavelength_grid) {
+static void average_spectrum( double *average, double *errors, struct omi_ref_list *spectra, double *wavelength_grid) {
   int nWavel = spectra->reference->orbit_file->nWavel;
 
   double tempspectrum[nWavel];
@@ -720,16 +730,20 @@ static void average_spectrum( double *average, double *errors, const struct omi_
   }
 
   int n_spectra = 0;
-  for(const struct omi_ref_list *cur_spectrum = spectra; cur_spectrum != NULL; cur_spectrum = cur_spectrum->next, n_spectra++) {
+  for(struct omi_ref_list *cur_spectrum = spectra; cur_spectrum != NULL; cur_spectrum = cur_spectrum->next, n_spectra++) {
     struct omi_ref_spectrum* reference = cur_spectrum->reference;
 
     // interpolate reference on wavelength_grid
     int rc = SPLINE_Deriv2(reference->wavelengths,reference->spectrum,derivs,nWavel,__func__);
-    if (rc) break;
-    SPLINE_Vector(reference->wavelengths,reference->spectrum,derivs,nWavel,wavelength_grid,tempspectrum,nWavel,SPLINE_CUBIC);
+    rc |= SPLINE_Vector(reference->wavelengths,reference->spectrum,derivs,nWavel,wavelength_grid,tempspectrum,nWavel,SPLINE_CUBIC,__func__);
+    if (rc) {
+      break;
+    }
 
     // interpolate instrumental errors on wavelength_grid
-    SPLINE_Vector(reference->wavelengths,reference->errors,NULL,nWavel,wavelength_grid,temperrors,nWavel,SPLINE_LINEAR);
+    rc = SPLINE_Vector(reference->wavelengths,reference->errors,NULL,nWavel,wavelength_grid,temperrors,nWavel,SPLINE_LINEAR,__func__);
+    if(rc)
+      break;
 
     for(int i=0; i<nWavel; i++) {
       average[i] += tempspectrum[i];
@@ -739,7 +753,7 @@ static void average_spectrum( double *average, double *errors, const struct omi_
 
   for(int i=0; i<nWavel; i++) {
     average[i] /= n_spectra;
-    errors[i] = sqrt(errors[i])/n_spectra; // std deviation of the average of n_spectra independent gaussian variables
+    errors[i] = sqrt(errors[i])/n_spectra; // * sqrt_n_spectra; // random error on the average of n_spectra gaussian variables
   }
 }
 
@@ -797,8 +811,13 @@ static RC setup_automatic_reference(ENGINE_CONTEXT *pEngineContext, void *respon
         struct omi_ref_list *reflist = (*row_references)[analysis_window][row];
 
         if(reflist != NULL) {
-          average_spectrum(pTabFeno->Sref, pTabFeno->SrefSigma, reflist, pTabFeno->LambdaRef);
-          VECTOR_NormalizeVector(pTabFeno->Sref-1,n_wavel,&pTabFeno->refNormFact, __func__);
+          average_spectrum(pTabFeno->SrefN, pTabFeno->SrefSigma, reflist, pTabFeno->LambdaRef);
+          VECTOR_NormalizeVector(pTabFeno->SrefN-1,n_wavel,&pTabFeno->refNormFactN, __func__);
+          // copy SrefN to SrefS...
+          memcpy(pTabFeno->SrefS,pTabFeno->SrefN,sizeof(double)* n_wavel);
+          pTabFeno->refNormFactS = pTabFeno->refNormFactN;
+          memcpy(pTabFeno->LambdaN,pTabFeno->LambdaK, sizeof(double) * n_wavel);
+          memcpy(pTabFeno->LambdaS,pTabFeno->LambdaK, sizeof(double) * n_wavel);
 	  pTabFeno->ref_description = automatic_reference_info(reflist);
         } else{
           char errormessage[250];
@@ -1271,11 +1290,15 @@ RC OMI_GetReference(int spectralType, const char *refFile, INDEX indexColumn, do
   return rc;
 }
 
-RC OMI_prepare_automatic_reference(ENGINE_CONTEXT *pEngineContext, void *responseHandle) {
+RC OMI_load_analysis(ENGINE_CONTEXT *pEngineContext, void *responseHandle) {
+  RC rc = ERROR_ID_NO;
+
   // if we need a new automatic reference, generate it
   if(pEngineContext->analysisRef.refAuto && !valid_reference_file(current_orbit_file.omiFileName)) {
-    int rc = setup_automatic_reference(pEngineContext, responseHandle);
-    if(rc) return rc;
+    rc = setup_automatic_reference(pEngineContext, responseHandle);
+    if(rc) {
+      goto end_omi_load_analysis;
+    }
 
     for(int i=0; i<ANALYSE_swathSize; i++) {
       if (pEngineContext->project.instrumental.use_row[i]) {
@@ -1283,11 +1306,13 @@ RC OMI_prepare_automatic_reference(ENGINE_CONTEXT *pEngineContext, void *respons
         // and automatic reference spectrum and apply this shift to
         // absorption crosssections
         rc = ANALYSE_AlignReference(pEngineContext,2,responseHandle,i);
-        if (rc) return rc;
       }
     }
+
   }
-  return ERROR_ID_NO;
+
+ end_omi_load_analysis:
+  return rc;
 }
 
 // -----------------------------------------------------------------------------
@@ -1327,8 +1352,8 @@ RC OMI_Set(ENGINE_CONTEXT *pEngineContext)
   // Open the file
   if (!rc) {
     pEngineContext->recordNumber=current_orbit_file.specNumber;
-    pEngineContext->n_alongtrack=current_orbit_file.nMeasurements;
-    pEngineContext->n_crosstrack=current_orbit_file.nXtrack;
+    pEngineContext->recordInfo.n_alongtrack=current_orbit_file.nMeasurements;
+    pEngineContext->recordInfo.n_crosstrack=current_orbit_file.nXtrack;
 
     omiTotalRecordNumber+=current_orbit_file.nMeasurements;
 

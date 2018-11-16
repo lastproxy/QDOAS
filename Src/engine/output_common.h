@@ -10,8 +10,7 @@
 #include "kurucz.h"
 #include "analyse.h"
 
-#define MAX_FIELDS 3600 // maximum number of output fields
-#define MAX_CALIB_FIELDS 20000 // maximum number of calibration fields
+#define MAX_FIELDS 3600 // maximum number of output and calibration fields
 
 /*! \brief The different data types that can be stored in an \ref
     output_field structure.
@@ -142,8 +141,6 @@ struct output_field {
 typedef struct _outputInfo
 {
   int specno; // number of the spectrum in the file, 1 based
-  int i_crosstrack;
-  int i_alongtrack;
   int nbColumns;
   int year,month,day;
   float longit,latit;
@@ -164,7 +161,7 @@ extern struct output_field output_data_analysis[MAX_FIELDS];
 /*! \brief Output fields for the reference spectrum calibration.
 
   The number of configured fields is kept in #calib_num_fields. */
-extern struct output_field output_data_calib[MAX_CALIB_FIELDS];
+extern struct output_field output_data_calib[MAX_FIELDS];
 
 /*! \brief returns the number of bytes used by an output datatype. */
 size_t output_get_size(enum output_datatype datatype);
@@ -176,14 +173,14 @@ size_t output_get_size(enum output_datatype datatype);
 
     \param [in] pEngineContext structure including information on
 
-    \param [in] filename the name of the outputFile
+    \param [in] outputFileName the name of the outputFile
 
     \retval ERROR_ID_FILE_OPEN if the requested file could not be
     opened
     \retval ERROR_ID_NONE else
 */
 RC open_output_file(const ENGINE_CONTEXT *pEngineContext, const char *filename);
-RC ascii_open(const ENGINE_CONTEXT *pEngineContext, char *filename);
+RC ascii_open(const ENGINE_CONTEXT *pEngineContext, const char *filename);
 RC hdfeos5_open(const ENGINE_CONTEXT *pEngineContext, const char *filename);
 //!@}
 

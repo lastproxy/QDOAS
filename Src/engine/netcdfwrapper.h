@@ -9,20 +9,6 @@
 #include <memory>
 
 #include <netcdf.h>
-// #include "nc4internal.h" /* to get name of the special properties file */
-
-extern "C" {
-#include "winthrd.h"
-#include "comdefs.h"
-#include "stdfunc.h"
-#include "engine_context.h"
-#include "mediate.h"
-#include "analyse.h"
-#include "spline.h"
-#include "vector.h"
-}
-
-typedef unsigned int uint;
 
 struct free_nc_string {
   void operator() (char *string) {
@@ -36,7 +22,7 @@ template<typename T> T default_fillvalue();
 
 // simple wrapper class around NetCDF C API calls.
 class NetCDFGroup {
-
+  
 public:
   NetCDFGroup(int id=0, const std::string& groupName ="") :  groupid(id), name(groupName) {};
 
@@ -97,61 +83,27 @@ public:
   template<typename T>
   inline void getVar(int varid, const size_t start[], const size_t count[], T *out) const {
     if (ncGetVar(varid, start, count, out) != NC_NOERR) {
-       // return error !!!
-
-      // throw std::runtime_error("Cannot read NetCDF variable '"+name+"/"+varName(varid)+"'");
+      throw std::runtime_error("Cannot read NetCDF variable '"+name+"/"+varName(varid)+"'");
     } }
   template<typename T>
   inline void getVar(const std::string& name, const size_t start[], const size_t count[], T *out) const {
-    getVar(varID(name), start, count, out);
-    }
-
-  // This function allocate the vector, initialize it to the default value and if the requested variable exists, retrieves the values
-
-  template<typename T>
-  inline void getVar(const std::string& name, const size_t start[], const size_t count[], int num_dims, T fill_value,std::vector<T>& out) const
-   {
-    // Declarations
-
-    int idim,                                                                     // browse dimensions
-        max_dim,                                                                  // number of dimensions (should be the size of start and count vectors
-        i;                                                                        // browse elements of vector var
-
-    // Get the number of elements  to allocate
-
-    for (max_dim=1,idim=0;idim<num_dims;idim++)
-     max_dim*=count[idim];
-
-    // Allocate the vector
-
-    out.resize(max_dim);
-
-    // Initialize the vector to fill value
-
-    for (i=0;i<max_dim;i++)
-     out[i]=fill_value;
-
-    if (hasVar(name))
-     getVar(name,start,count,out.data());
-   }
-
+    getVar(varID(name), start, count, out);  }
 
   template<typename T>
   inline void putVar(int varid, const size_t start[], const size_t count[], T *in) {
     if (ncPutVar(varid, start, count, in) != NC_NOERR) {
-      // !!! throw std::runtime_error("Cannot write NetCDF variable '"+name+"/"+varName(varid)+"'");
+      throw std::runtime_error("Cannot write NetCDF variable '"+name+"/"+varName(varid)+"'");
     } }
   template<typename T>
-  inline void putVar(const std::string& name, const size_t start[], const size_t count[], T *in) {
+  inline void putVar(const std::string& name, const size_t start[], const size_t count[], T *in) { 
     putVar(varID(name), start, count, in); }
   template<typename T>
   inline void putVar(int varid, T *in) {
     if (ncPutVar(varid,in) != NC_NOERR) {
-     // return error !!!
-     // throw std::runtime_error("Cannot write NetCDF variable '"+name+"/"+varName(varid)+"'");
+      throw std::runtime_error("Cannot write NetCDF variable '"+name+"/"+varName(varid)+"'");
     } }
   template<typename T>
-  inline void putVar(const std::string& name, T *in) {
+  inline void putVar(const std::string& name, T *in) { 
     putVar(varID(name), in); }
 
   template<typename T>
@@ -160,8 +112,8 @@ public:
 
     if (rc != NC_NOERR) {
       std::stringstream errstream;
-      errstream << "Cannot write NetCDF attribute '" << name << "'"
-                << (varid == NC_GLOBAL
+      errstream << "Cannot write NetCDF attribute '" << name << "'" 
+                << (varid == NC_GLOBAL 
                     ? ""
                     : " for variable '"+ varName(varid)) << ": ";
       switch (rc) {
@@ -184,7 +136,7 @@ public:
         errstream << rc;
         break;
       }
-      // !!! throw std::runtime_error(errstream.str() );
+      throw std::runtime_error(errstream.str() );
     }
   }
   template<typename T>
@@ -231,20 +183,6 @@ private:
     return nc_get_vara_float(groupid, varid, start, count, out); };
   inline int ncGetVar(int varid, const size_t start[], const size_t count[], double *out) const {
     return nc_get_vara_double(groupid, varid, start, count, out); };
-  inline int ncGetVar(int varid, const size_t start[], const size_t count[], int *out) const {
-    return nc_get_vara_int(groupid, varid, start, count, out); };
-  inline int ncGetVar(int varid, const size_t start[], const size_t count[], uint *out) const {
-    return nc_get_vara_uint(groupid, varid, start, count, out); };
-  inline int ncGetVar(int varid, const size_t start[], const size_t count[], long *out) const {
-    return nc_get_vara_long(groupid, varid, start, count, out); };
-  inline int ncGetVar(int varid, const size_t start[], const size_t count[], short *out) const {
-    return nc_get_vara_short(groupid, varid, start, count, out); };
-  inline int ncGetVar(int varid, const size_t start[], const size_t count[], unsigned short *out) const {
-    return nc_get_vara_ushort(groupid, varid, start, count, out); };
-  inline int ncGetVar(int varid, const size_t start[], const size_t count[], signed char *out) const {
-    return nc_get_vara_schar(groupid, varid, start, count, out); };
-  inline int ncGetVar(int varid, const size_t start[], const size_t count[], unsigned char *out) const {
-    return nc_get_vara_uchar(groupid, varid, start, count, out); };
 
   inline int ncPutVar(int varid, const size_t start[], const size_t count[], float const *in) {
     return nc_put_vara_float(groupid, varid, start, count, in); };

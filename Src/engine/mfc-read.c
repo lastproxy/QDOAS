@@ -237,6 +237,8 @@ RC MFC_AllocFiles(ENGINE_CONTEXT *pEngineContext)
 
     if ((ptr=strrchr(ptr,'.'))!=NULL)
      strcpy(fileExt,ptr+1);
+    else if (strlen(pEngineContext->project.instrumental.fileExt))
+     strcpy(fileExt,pEngineContext->project.instrumental.fileExt);
     else
      memset(fileExt,0,MAX_STR_SHORT_LEN+1);
 
@@ -357,7 +359,7 @@ INDEX MFC_SearchForCurrentFileIndex(ENGINE_CONTEXT *pEngineContext)
      indexRecord=ITEM_NONE;
     else
      {
-      indexRecordLow=indexRecord=0;
+      indexRecordLow=0;
       indexRecordHigh=nFiles;
 
       while (indexRecordHigh-indexRecordLow>1)
@@ -545,6 +547,10 @@ RC MFC_ReadRecord(char *fileName,
 //               ERROR_ID_FILE_RECORD    : the record doesn't satisfy user constraints
 //               ERROR_ID_NO             : otherwise.
 // -----------------------------------------------------------------------------
+
+#if defined(__BC32_) && __BC32_
+#pragma argsused
+#endif
 RC ReliMFC(ENGINE_CONTEXT *pEngineContext,int recordNo,int dateFlag,int localDay,FILE *specFp,unsigned int mfcMask)
  {
   // Declarations
@@ -734,7 +740,7 @@ RC ReliMFC(ENGINE_CONTEXT *pEngineContext,int recordNo,int dateFlag,int localDay
 
         MFC_header.longitude=-MFC_header.longitude;
 
-        timeshift=(fabs(THRD_localShift)>EPSILON)?THRD_localShift:pRecord->longitude/15.;
+        timeshift=(fabs(THRD_localShift)>EPSILON)?THRD_localShift:floor(pRecord->longitude/15.);
 
         pRecord->Tm=(double)ZEN_NbSec(&pRecord->present_datetime.thedate,&pRecord->present_datetime.thetime,0);
         pRecord->Zm=ZEN_FNTdiz(ZEN_FNCrtjul(&pRecord->Tm),&pRecord->longitude,&pRecord->latitude,&pRecord->Azimuth);
@@ -745,20 +751,16 @@ RC ReliMFC(ENGINE_CONTEXT *pEngineContext,int recordNo,int dateFlag,int localDay
 
         pRecord->longitude=-MFC_header.longitude;  // !!!
 
-        pRecord->maxdoas.measurementType=(pRecord->elevationViewAngle>80.)?PRJCT_INSTR_MAXDOAS_TYPE_ZENITH:PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS;  // Not the possibility to separate almucantar, horizon and direct sun from off-axis measurements
-
         // User constraints
 
 //        if (dateFlag && (pRecord->localCalDay>localDay))
 //         rc=ERROR_ID_FILE_END;
-
 
         if (rc || (dateFlag && ((pRecord->localCalDay!=localDay) ||
                                 (pRecord->elevationViewAngle<pEngineContext->project.spectra.refAngle-pEngineContext->project.spectra.refTol) ||
                                 (pRecord->elevationViewAngle>pEngineContext->project.spectra.refAngle+pEngineContext->project.spectra.refTol))))         // reference spectra could be a not zenith sky spectrum
 
            rc=ERROR_ID_FILE_RECORD;
-
        }
      }
 
@@ -971,8 +973,6 @@ RC MFC_ReadRecordStd(ENGINE_CONTEXT *pEngineContext,char *fileName,
      	 }
      }
 
-    pRecord->maxdoas.measurementType=(pRecord->elevationViewAngle>80.)?PRJCT_INSTR_MAXDOAS_TYPE_ZENITH:PRJCT_INSTR_MAXDOAS_TYPE_OFFAXIS;  // Not the possibility to separate almucantar, horizon and direct sun from off-axis measurements
-
     if ((pRecord->Tint<(double)1.e-3) && (pRecord->TotalAcqTime>(double)1.e-3))
      pRecord->Tint=pRecord->TotalAcqTime;
 
@@ -1024,6 +1024,10 @@ RC MFC_ReadRecordStd(ENGINE_CONTEXT *pEngineContext,char *fileName,
 //               ERROR_ID_FILE_RECORD    : the record doesn't satisfy user constraints
 //               ERROR_ID_NO             : otherwise.
 // -----------------------------------------------------------------------------
+
+#if defined(__BC32_) && __BC32_
+#pragma argsused
+#endif
 RC ReliMFCStd(ENGINE_CONTEXT *pEngineContext,int recordNo,int dateFlag,int localDay,FILE *specFp)
  {
   // Declarations
@@ -1076,7 +1080,7 @@ RC ReliMFCStd(ENGINE_CONTEXT *pEngineContext,int recordNo,int dateFlag,int local
 
       pRecord->altitude=(double)0.;
 
-      timeshift=(fabs(THRD_localShift)>EPSILON)?THRD_localShift:pRecord->longitude/15.;
+      timeshift=(fabs(THRD_localShift)>EPSILON)?THRD_localShift:floor(pRecord->longitude/15.);
 
       tmLocal=pRecord->Tm+timeshift*3600.;
 
@@ -1349,7 +1353,7 @@ RC MFCBIRA_Reli(ENGINE_CONTEXT *pEngineContext,int recordNo,int dateFlag,int loc
     pRecord->TDet=header.temperature;
 
     strcpy(pRecord->mfcBira.originalFileName,header.fileName);
-    pRecord->maxdoas.measurementType=header.measurementType;
+    pRecord->mfcBira.measurementType=header.measurementType;
 
     // Calculate the date and time at half of the measurement
 
@@ -1394,7 +1398,7 @@ RC MFCBIRA_Reli(ENGINE_CONTEXT *pEngineContext,int recordNo,int dateFlag,int loc
 
     pRecord->TimeDec=(double)pRecord->present_datetime.thetime.ti_hour+pRecord->present_datetime.thetime.ti_min/60.+pRecord->present_datetime.thetime.ti_sec/3600.;
 
-    timeshift=(fabs(THRD_localShift)>EPSILON)?THRD_localShift:header.longitude/15.;
+    timeshift=(fabs(THRD_localShift)>EPSILON)?THRD_localShift:floor(header.longitude/15.);
 
     tmLocal=pRecord->Tm+timeshift*3600.;
     pRecord->localCalDay=ZEN_FNCaljda(&tmLocal);

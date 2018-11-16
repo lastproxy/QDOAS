@@ -40,7 +40,7 @@
 //  =================
 //
 //  FNPixel - get a pixel from a wavelength;
-//  ShiftVector - apply shift and stretch on vector; convolve when fitting SFP during Kurucz
+//  ShiftVector - apply shift and stretch on vector;
 //  Norm - vector norm computation
 //  OrthogonalizeVector - orthogonalize a column in A matrix to a set of other columns of A;
 //  Orthogonalization - orthogonalization of matrix A processing;
@@ -149,8 +149,6 @@
 #include "usamp.h"
 #include "spectral_range.h"
 #include "tropomi_read.h"
-#include "gome2_read.h"
-#include "scia-read.h"
 #include "output.h"
 #include "stdfunc.h"
 #include "winthrd.h"
@@ -159,7 +157,6 @@
 #include "zenithal.h"
 #include "omi_read.h"
 #include "apex_read.h"
-#include "gdp_bin_read.h"
 
 // ===================
 // Global DECLARATIONS
@@ -198,6 +195,7 @@ double *x,*Lambda,*LambdaSpec,
   *ANALYSE_zeros,
   *ANALYSE_ones;
 double   ANALYSE_nFree;                // number of free degrees
+double   ANALYSE_oldLatitude;
 
 MATRIX_OBJECT ANALYSIS_slitMatrix[NSFP],ANALYSIS_slitK,ANALYSIS_broAmf,O3TD;
 double ANALYSIS_slitParam[NSFP];
@@ -355,7 +353,7 @@ int reinit_analysis(FENO *pFeno, const int n_wavel) {
 
   memcpy(ANALYSE_absolu, ANALYSE_zeros, sizeof(double) * n_wavel);
 
-  return ANALYSE_SvdInit(pFeno,&pFeno->fit_properties, n_wavel, Lambda);
+  return ANALYSE_SvdInit(pFeno,&pFeno->fit_properties, n_wavel);
  }
 
 void AnalyseGetFenoLim(FENO *pFeno,INDEX *pLimMin,INDEX *pLimMax, const int n_wavel)
@@ -601,7 +599,7 @@ RC TemperatureCorrection(double *xs,double *A,double *B,double *C,double *newXs,
 }
 
 // -----------------------------------------------
-// ShiftVector : Apply shift and stretch on vector; convolve reference when fitting SFP in Kurucz
+// ShiftVector : Apply shift and stretch on vector
 // -----------------------------------------------
 
 RC ShiftVector(const double *lambda, double *source, const double *deriv, double *target, const int n_wavel,
@@ -654,7 +652,7 @@ RC ShiftVector(const double *lambda, double *source, const double *deriv, double
         rc = XSCONV_TypeGauss(lambda,source,deriv,ANALYSE_shift[j],(ANALYSE_splineX[j+1]-ANALYSE_splineX[j]),
                               &target[j],fabs(fwhm),(double)0.,SLIT_TYPE_GAUSS, n_wavel);
       } else {
-        rc = SPLINE_Vector(lambda,source,deriv,n_wavel,&ANALYSE_shift[j],&target[j],1,pAnalysisOptions->interpol);
+        rc = SPLINE_Vector(lambda,source,deriv,n_wavel,&ANALYSE_shift[j],&target[j],1,pAnalysisOptions->interpol,__func__);
       }
       if (rc != ERROR_ID_NO)
         break;
@@ -692,7 +690,7 @@ RC ShiftVector(const double *lambda, double *source, const double *deriv, double
 
       rc=SPLINE_Vector(KURUCZ_buffers[indexFenoColumn].hrSolar.matrix[0],KURUCZ_buffers[indexFenoColumn].hrSolar.matrix[1],
                        KURUCZ_buffers[indexFenoColumn].hrSolar.deriv2[1],KURUCZ_buffers[indexFenoColumn].hrSolar.nl,
-                       ANALYSE_shift,source,n_wavel,pAnalysisOptions->interpol);
+                       ANALYSE_shift,source,n_wavel,pAnalysisOptions->interpol,__func__);
 
      }
     else
@@ -738,8 +736,10 @@ RC ShiftVector(const double *lambda, double *source, const double *deriv, double
         memcpy(&source[LimMin],&ANALYSE_shift[LimMin],sizeof(double)*LimN);
 
         SPLINE_Vector(pKURUCZ_fft->fftIn+1,pKURUCZ_fft->invFftOut+1,pKURUCZ_fft->invFftIn+1,pKURUCZ_fft->oldSize,
-                      &ANALYSE_shift[LimMin],&target[LimMin],LimN,pAnalysisOptions->interpol);
-      } else {
+                      &ANALYSE_shift[LimMin],&target[LimMin],LimN,pAnalysisOptions->interpol,__func__);
+       }
+      else
+       {
        	MATRIX_OBJECT xsNew;
        	MATRIX_OBJECT slitMatrix[NSFP];
         SLIT slitOptions;
@@ -790,34 +790,15 @@ RC ShiftVector(const double *lambda, double *source, const double *deriv, double
               for (int i=0;i<nc;i++)
                 memcpy(slitMatrix[0].matrix[i],KURUCZ_buffers[indexFenoColumn].slitFunction.matrix[i],sizeof(double)*nl);
 
-              // determine slit center wavelength, defined as wavelength
-              // corresponding to the maximum value
-              //
-              // TODO: for low-sampled slit functions, lambda of maximum
-              // might not be a good measure of the center => perform an
-              // interpolation here and in KuruczConvolveSolarSpectrum.
-              double lambda_center = 0.;
-              double slit_max = 0.;
-              for (int i=shiftIndex; i<slitMatrix[0].nl; ++i) {
-                if (slitMatrix[0].matrix[1][i] > slit_max) {
-                  slit_max = slitMatrix[0].matrix[1][i];
-                  lambda_center = slitMatrix[0].matrix[0][i];
-                }
-              }
-
        	      // Apply the stretch on the slit wavelength calibration
-              for (int i=shiftIndex;i<slitMatrix[0].nl;i++) {
-                // stretch wavelength grid around the center wavelength,
-                // using fwhmStretch1 on the left, and fwhmStretch2 on the
-                // right:
-                double delta_lambda = slitMatrix[0].matrix[0][i] - lambda_center;
-                delta_lambda *= (delta_lambda < 0.) ? fwhmStretch1 : fwhmStretch2;
-                slitMatrix[0].matrix[0][i]= lambda_center + delta_lambda;
-              }
+
+       	      for (int i=shiftIndex;i<slitMatrix[0].nl;i++)
+                slitMatrix[0].matrix[0][i]=(slitMatrix[0].matrix[0][i]<(double)0.)?fwhmStretch1*KURUCZ_buffers[indexFenoColumn].slitFunction.matrix[0][i]:fwhmStretch2*KURUCZ_buffers[indexFenoColumn].slitFunction.matrix[0][i];
 
        	      // Recalculate second derivatives and the FWHM
+
        	      for (int i=1;i<slitMatrix[0].nc;i++)
-                rc=SPLINE_Deriv2(slitMatrix[0].matrix[0]+shiftIndex,slitMatrix[0].matrix[i]+shiftIndex,slitMatrix[0].deriv2[i]+shiftIndex,slitMatrix[0].nl-shiftIndex,__func__);
+                rc=SPLINE_Deriv2(slitMatrix[0].matrix[0]+shiftIndex,slitMatrix[0].matrix[1]+shiftIndex,slitMatrix[0].deriv2[i]+shiftIndex,slitMatrix[0].nl-shiftIndex,__func__);
              }
            }
           else if ((slitType==SLIT_TYPE_VOIGT) || (slitType==SLIT_TYPE_AGAUSS) || (pKuruczOptions->fwhmType==SLIT_TYPE_SUPERGAUSS) || (slitType==SLIT_TYPE_INVPOLY))
@@ -850,7 +831,7 @@ RC ShiftVector(const double *lambda, double *source, const double *deriv, double
 
     }
 
-    if (hFilterRefLog && !(rc=SPLINE_Vector(KURUCZ_buffers[indexFenoColumn].lambdaF,KURUCZ_buffers[indexFenoColumn].solarF,KURUCZ_buffers[indexFenoColumn].solarF2,n_wavel+2*KURUCZ_buffers[indexFenoColumn].solarFGap,ANALYSE_shift+LimMin,source+LimMin,LimN,pAnalysisOptions->interpol))) {
+    if (hFilterRefLog && !(rc=SPLINE_Vector(KURUCZ_buffers[indexFenoColumn].lambdaF,KURUCZ_buffers[indexFenoColumn].solarF,KURUCZ_buffers[indexFenoColumn].solarF2,n_wavel+2*KURUCZ_buffers[indexFenoColumn].solarFGap,ANALYSE_shift+LimMin,source+LimMin,LimN,pAnalysisOptions->interpol,__func__))) {
       int i;
       for (i=LimMin;(i<=LimMax) && (source[i]>(double)0.) && (target[i]>(double)0.);i++)
         target[i]=log(target[i]/source[i]);
@@ -859,7 +840,7 @@ RC ShiftVector(const double *lambda, double *source, const double *deriv, double
         rc=ERROR_SetLast(__func__,ERROR_TYPE_WARNING,ERROR_ID_LOG,analyseIndexRecord);
     }
   } else if (!fwhmFlag) {
-    rc=SPLINE_Vector(lambda,source,deriv,n_wavel,&ANALYSE_shift[LimMin],&target[LimMin],LimN,pAnalysisOptions->interpol);
+    rc=SPLINE_Vector(lambda,source,deriv,n_wavel,&ANALYSE_shift[LimMin],&target[LimMin],LimN,pAnalysisOptions->interpol,__func__);
   }
   // Return
 
@@ -942,7 +923,7 @@ RC ANALYSE_XsInterpolation(FENO *pTabFeno, const double *newLambda,INDEX indexFe
                                pXs->matrix[i],
                                pXs->deriv2[i],
                                pXs->nl,newLambda,
-                               O3TD.matrix[i],pTabFeno->NDET,pAnalysisOptions->interpol))!=0)
+                               O3TD.matrix[i],pTabFeno->NDET,pAnalysisOptions->interpol,"ANALYSE_XsInterpolation "))!=0)
           break;
 
         if (rc)
@@ -952,7 +933,7 @@ RC ANALYSE_XsInterpolation(FENO *pTabFeno, const double *newLambda,INDEX indexFe
       if ((pTabCross->crossAction==ANLYS_CROSS_ACTION_NOTHING) || ((pXs->nl==pTabFeno->NDET) && VECTOR_Equal(pXs->matrix[0],newLambda,pTabFeno->NDET,(double)1.e-7)))          // wavelength scale is the same as new one
        memcpy(filtCross,pXs->matrix[icolumn],sizeof(double)*pTabFeno->NDET);
       else
-       if ((rc=SPLINE_Vector(pXs->matrix[0],pXs->matrix[icolumn],pXs->deriv2[icolumn],pXs->nl,newLambda,filtCross,pTabFeno->NDET,pAnalysisOptions->interpol))!=0)           // interpolation processing
+       if ((rc=SPLINE_Vector(pXs->matrix[0],pXs->matrix[icolumn],pXs->deriv2[icolumn],pXs->nl,newLambda,filtCross,pTabFeno->NDET,pAnalysisOptions->interpol,"ANALYSE_XsInterpolation "))!=0)           // interpolation processing
         break;
 
       //
@@ -1051,7 +1032,7 @@ RC ANALYSE_ConvoluteXs(const FENO *pTabFeno,int action,double conc,
       if (!(rc=MATRIX_Allocate(&xsI0,hrSolar.nl,2,0,0,1,"ANALYSE_ConvoluteXs (xsI0)")) &&
           !(rc=MATRIX_Allocate(&xshr,hrSolar.nl,2,0,0,1,"ANALYSE_ConvoluteXs (xshr)")) &&
           !(rc=SPLINE_Vector(pXs->matrix[0],pXs->matrix[1],pXs->deriv2[1],pXs->nl,           // interpolation of XS on the grid of the high resolution solar spectrum
-                             hrSolar.matrix[0],xshr.matrix[1],xshr.nl,pAnalysisOptions->interpol)))
+                             hrSolar.matrix[0],xshr.matrix[1],xshr.nl,pAnalysisOptions->interpol,__func__)))
        {
         memcpy(xsI0.matrix[0],hrSolar.matrix[0],xshr.nl*sizeof(double));               // copy of the solar wavelength calibration
         memcpy(xshr.matrix[0],hrSolar.matrix[0],xshr.nl*sizeof(double));               // copy of the solar wavelength calibration
@@ -1239,7 +1220,8 @@ RC ANALYSE_XsConvolution(FENO *pTabFeno,double *newlambda,
 // AnalyseLoadVector : Load a (2-column) vector from a file
 // --------------------------------------------
 
-RC AnalyseLoadVector(const char *function, const char *fileName, double *lambda, double *vector, const int n_wavel) {
+RC AnalyseLoadVector(const char *fileName, double *lambda, double *vector, const int n_wavel, int refFlag, int *pNewSize)
+{
   // Declarations
 
   FILE *fp;
@@ -1263,13 +1245,13 @@ RC AnalyseLoadVector(const char *function, const char *fileName, double *lambda,
       rc=ERROR_SetLast(__func__,ERROR_TYPE_FATAL,ERROR_ID_FILE_NOT_FOUND,fullFileName);
     else {
       for (i=0;  i<n_wavel && fgets(string,MAX_ITEM_TEXT_LEN,fp) && !rc; ) {
-        if (strchr(string,';')==NULL && strchr(string,'*')==NULL && strchr(string,'#')==NULL) {
+        if ((strchr(string,';')==NULL) && (strchr(string,'*')==NULL)) {
           int n_scan = sscanf(string,"%lf %lf",&lambda[i],&vector[i]);
           if (n_scan != 2) {
             rc = ERROR_SetLast(__func__, ERROR_TYPE_FATAL, ERROR_ID_FILE_BAD_LENGTH, fullFileName);
           }
           i++;
-        } else {
+        } else if (refFlag) {
           if ((str=strstr(string,"Zm"))!=NULL)
             sscanf(str,"Zm : %lf",&TabFeno[0][NFeno].Zm);
           else if ((str=strstr(string,"SZA"))!=NULL)
@@ -1292,6 +1274,9 @@ RC AnalyseLoadVector(const char *function, const char *fileName, double *lambda,
           }
         }
       }
+
+      if (pNewSize!=NULL)
+        *pNewSize=i;
 
       fclose(fp);
     }
@@ -1485,7 +1470,7 @@ RC AnalyseSvdGlobalAlloc(void)
 //                   determination and concentrations computation
 // --------------------------------------------------------------------------
 
-RC ANALYSE_SvdInit(FENO* pFeno, struct fit_properties *fit, const int n_wavel, const double *lambda)
+RC ANALYSE_SvdInit(FENO* pFeno, struct fit_properties *fit, const int n_wavel)
 {
   // Declarations
 
@@ -1501,7 +1486,7 @@ RC ANALYSE_SvdInit(FENO* pFeno, struct fit_properties *fit, const int n_wavel, c
 
   // Initializations
 
-  memcpy(ANALYSE_splineX,lambda,sizeof(*lambda)*n_wavel);
+  memcpy(ANALYSE_splineX,Lambda,sizeof(double)*n_wavel);
 
   OrthoSet=pFeno->OrthoSet;
   NOrtho=pFeno->NOrtho;
@@ -1681,128 +1666,199 @@ RC ANALYSE_SvdInit(FENO* pFeno, struct fit_properties *fit, const int n_wavel, c
   return rc;
 }
 
-// Fit shift and stretch between 2 spectra, using analysis settings
-// from TabFeno[indexFenoColumn][indexFeno].
-// Because we use the existing analysis settings, no shift/stretch is
-// fit if the analysis window is not configured to use shift and
-// stretch.
-RC ANALYSE_fit_shift_stretch(int indexFeno, int indexFenoColumn, const double *spec1, const double *spec2,
-                     double *shift, double *stretch, double *stretch2,
-                     double *sigma_shift, double *sigma_stretch, double *sigma_stretch2) {
-  FENO copy = TabFeno[indexFenoColumn][indexFeno]; // local working copy
-  Feno=&copy;
-  Feno->fit_properties.linfit = NULL;
-  Feno->Shift=Feno->Stretch=Feno->Stretch2=0.;
-  NDET[indexFenoColumn]=Feno->NDET;
-
-  memcpy(Feno->Lambda,Feno->LambdaK,sizeof(*Feno->Lambda)*Feno->NDET); // CHECK: why this copy?
-  LambdaSpec=Feno->Lambda; // now pointer LambdaSpec== pointer Feno->Lambda, and buffer content is Feno->LambdaK
-
-  Feno->Decomp=1;
-  Feno->amfFlag=0;
-  Feno->indexReference=ITEM_NONE;
-
-  RC rc=ANALYSE_SvdInit(Feno, &Feno->fit_properties, Feno->NDET,Feno->Lambda);
-  // TODO: when we call curfitmethod here, absorber constraints between analysis windows will not work. is this ok?
-  if (!rc) rc=ANALYSE_CurFitMethod(indexFenoColumn,
-                                   spec1,                       // etalon reference spectrum
-                                   NULL,                        // error on raw spectrum
-                                   spec2,                       // reference spectrum
-                                   Feno->NDET,
-                                   NULL,
-                                   &Square,                     // returned stretch order 2
-                                   NULL,                        // number of iterations in Curfit
-                                   1.,
-                                   1.,
-                                   &Feno->fit_properties);
-
-  LINEAR_free(Feno->fit_properties.linfit);
-
-  if(rc>=THREAD_EVENT_STOP) {
-    return ERROR_SetLast(__func__,ERROR_TYPE_WARNING,ERROR_ID_REF_ALIGNMENT,Feno->windowName);
-  }
-
-  const CROSS_RESULTS *pResults=&Feno->TabCrossResults[Feno->indexSpectrum];
-  *shift=pResults->Shift;
-  *stretch=pResults->Stretch;
-  *stretch2=pResults->Stretch2;
-  *sigma_shift=pResults->SigmaShift;
-  *sigma_stretch=pResults->SigmaStretch;
-  *sigma_stretch2=pResults->SigmaStretch2;
-
-  return ERROR_ID_NO;
-}
-
 // ----------------------------------------------------------
 // ANALYSE_AlignReference : Align reference spectrum on etalon
 // ----------------------------------------------------------
-//  refFlag==0 : GB, file mode selection
-//  refFlag==1 : GB, automatic mode selection
-//  refFlag==2 : Satellites, automatic mode
-RC ANALYSE_AlignReference(ENGINE_CONTEXT *pEngineContext,int refFlag,void *responseHandle,INDEX indexFenoColumn) {
-  RC rc = ERROR_ID_NO;
 
-  for (int WrkFeno=0; WrkFeno<NFeno && !rc; WrkFeno++) {
+RC ANALYSE_AlignReference(ENGINE_CONTEXT *pEngineContext,int refFlag,void *responseHandle,INDEX indexFenoColumn)
 
-    const FENO *pFeno = &TabFeno[indexFenoColumn][WrkFeno];
+//
+//  refFlag==0 : GB, file mode selection        refFlag==2 : GOME, refN
+//  refFlag==1 : GB, automatic mode selection   refFlag==3 : GOME, refS
+//
+{
+  // Declarations
 
-    if (!pFeno->hidden
-        && (pFeno->useKurucz!=ANLYS_KURUCZ_NONE) && (pFeno->useKurucz!=ANLYS_KURUCZ_SPEC) && (pFeno->useKurucz!=ANLYS_KURUCZ_REF_AND_SPEC)
-        && (pFeno->newrefFlag || pEngineContext->satelliteFlag)
-        && ( (!refFlag && pFeno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_FILE) ||
-             (refFlag && pFeno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC) )
-        && pFeno->useEtalon
-        && !VECTOR_Equal(pFeno->SrefEtalon,pFeno->Sref,pFeno->NDET,0.) ) {
+  FENO *RefTabFeno;                                                             // copy of analysis windows for reference use
+  CROSS_RESULTS *pResults;                                                      // pointer to the set of results relative to a symbol
+  INDEX WrkFeno,                                                                // index on analysis windows
+    indexLine,indexColumn,                                                      // position in the spreadsheet for information to write
+    indexPage,
+    i,j;                                                                        // indexes for loops and arrays
 
-      double shift, stretch, stretch2, sigma_shift, sigma_stretch, sigma_stretch2;
-      rc=ANALYSE_fit_shift_stretch(WrkFeno, indexFenoColumn, pFeno->SrefEtalon, pFeno->Sref, &shift, &stretch, &stretch2, &sigma_shift, &sigma_stretch, &sigma_stretch2);
+  double *Sref,
+    x0,lambda0;
+  plot_data_t spectrumData[2];
+  char string[MAX_ITEM_TEXT_LEN],tabTitle[MAX_ITEM_TEXT_LEN];
+  RC rc;                                                                        // return code
 
-      double *lambda=pFeno->Lambda; // CHECK: this used to be the global pointer 'Lambda'. changed it to a local pointer
-      const double lambda0=lambda[(SvdPDeb+SvdPFin)/2];
-      // CHECK: changes to lambda here also change original pFeno->Lambda, because it's a pointer to the same buffer... is this ok?
-      for (int j=0; j<pFeno->NDET; j++) { // This is used only for spectra display
-        double x0=lambda[j]-lambda0;
-        lambda[j]=lambda[j]-(shift+(stretch+stretch2*x0)*x0);
+  // Initializations
+
+#if defined(__DEBUG_) && __DEBUG_
+  DEBUG_FunctionBegin(__func__,DEBUG_FCTTYPE_APPL);
+#endif
+
+  const int n_wavel = NDET[indexFenoColumn];
+  indexColumn=2;
+  rc=ERROR_ID_NO;
+
+  // Buffers allocation
+
+  if ((RefTabFeno=(FENO *)MEMORY_AllocBuffer(__func__,"RefTabFeno",MAX_FENO,sizeof(FENO),0,MEMORY_TYPE_STRUCT))==NULL) {
+    rc=ERROR_ID_ALLOC;
+  } else {
+    memcpy(RefTabFeno,TabFeno[indexFenoColumn],sizeof(FENO)*MAX_FENO);
+    memcpy(ANALYSE_absolu,ANALYSE_zeros,sizeof(double)*n_wavel);
+    memcpy(ANALYSE_t,ANALYSE_zeros,sizeof(double)*n_wavel);
+    memcpy(ANALYSE_tc,ANALYSE_zeros,sizeof(double)*n_wavel);
+
+    for (WrkFeno=0;(WrkFeno<NFeno) && !rc;WrkFeno++) {
+
+      indexPage=(pEngineContext->satelliteFlag)?plotPageRef:WrkFeno+plotPageAnalysis;
+
+      Feno=&RefTabFeno[WrkFeno];
+      Feno->fit_properties.linfit = NULL; // don't keep reference to original TabFeno linear_system.
+      Feno->Shift=Feno->Stretch=Feno->Stretch2=(double)0.;
+      pResults=&Feno->TabCrossResults[Feno->indexSpectrum];
+      NDET[indexFenoColumn]=Feno->NDET;
+
+      memcpy(Feno->Lambda,Feno->LambdaRef,sizeof(double)*Feno->NDET);
+
+      if (refFlag==2) {
+        Sref=Feno->SrefN;
+        Lambda=Feno->Lambda;
+        Feno->refNormFact=Feno->refNormFactN;
+      } else if (refFlag==3) {
+        Sref=Feno->SrefS;
+        Lambda=Feno->Lambda;
+        Feno->refNormFact=Feno->refNormFactS;
+      } else {
+        Sref=Feno->Sref;
+        Lambda=Feno->Lambda;
       }
 
-      TabFeno[indexFenoColumn][WrkFeno].Shift=shift;
-      TabFeno[indexFenoColumn][WrkFeno].Stretch=stretch;
-      TabFeno[indexFenoColumn][WrkFeno].Stretch2=stretch2;
+      if (!Feno->hidden
+          && (Feno->useKurucz!=ANLYS_KURUCZ_NONE) && (Feno->useKurucz!=ANLYS_KURUCZ_SPEC) && (Feno->useKurucz!=ANLYS_KURUCZ_REF_AND_SPEC)
+          && (Feno->newrefFlag || pEngineContext->satelliteFlag)
+          && ((!refFlag && (Feno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_FILE)) ||
+              (refFlag && (Feno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC)))
+          && Feno->useEtalon
+          && !VECTOR_Equal(Feno->SrefEtalon,Sref,Feno->NDET,(double)0.)
+          && ((refFlag!=3) || !VECTOR_Equal(Feno->SrefN,Sref,Feno->NDET,(double)0.)))
+       {
+        memcpy(Lambda,Feno->LambdaK,sizeof(double)*Feno->NDET);
+        LambdaSpec=Feno->Lambda;
 
-      // Display fit
-      if (pFeno->displayRefEtalon && pEngineContext->project.spectra.displaySpectraFlag) {
+        // Pointers initializations
 
-        memcpy(ANALYSE_secX,ANALYSE_zeros,sizeof(*ANALYSE_secX)*pFeno->NDET);
+        const double * const Spectre=Feno->SrefEtalon;
 
-        for (int i=SvdPDeb;i<SvdPFin;i++)
-          ANALYSE_secX[i]=exp(log(pFeno->SrefEtalon[i])+ANALYSE_absolu[i]);
+        Feno->Decomp=1;
+        Feno->amfFlag=0;
 
-        plot_data_t spectrumData[2];
-        const int indexPage=(pEngineContext->satelliteFlag)?plotPageRef:WrkFeno+plotPageAnalysis;
-        mediateAllocateAndSetPlotData(&spectrumData[0],"Measured",&lambda[SvdPDeb],&pFeno->SrefEtalon[SvdPDeb],SvdPFin-SvdPDeb+1,Line);
-        mediateAllocateAndSetPlotData(&spectrumData[1],"Calculated",&lambda[SvdPDeb],&ANALYSE_secX[SvdPDeb],SvdPFin-SvdPDeb+1,Line);
-        mediateResponsePlotData(indexPage,spectrumData,2,Spectrum,forceAutoScale,"Alignment Ref1/Ref2","Wavelength (nm)","Intensity", responseHandle);
-        mediateResponseLabelPage(indexPage,pEngineContext->fileInfo.fileName, "Reference", responseHandle);
-        mediateReleasePlotData(&spectrumData[1]);
-        mediateReleasePlotData(&spectrumData[0]);
+        Feno->indexReference=ITEM_NONE;
 
-        if (pEngineContext->satelliteFlag) {
-          ANALYSE_plotRef=1;
-          int indexLine=ANALYSE_indexLine;
-          const int indexColumn = 2;
+        // Initialize global variables
 
-          mediateResponseCellInfo(plotPageRef,indexLine++,indexColumn,responseHandle,"ALIGNMENT REF1/REF2 IN","%s",pFeno->windowName);
+        if (((rc=ANALYSE_SvdInit(Feno, &Feno->fit_properties, Feno->NDET))!=ERROR_ID_NO) ||
+            ((rc=ANALYSE_CurFitMethod(0,                           // not for OMI for the moment
+                                      Spectre,                     // etalon reference spectrum
+                                      NULL,                        // error on raw spectrum
+                                      Sref,                        // reference spectrum
+                                      Feno->NDET,
+                                      NULL,
+                                      &Square,                      // returned stretch order 2
+                                      NULL,                        // number of iterations in Curfit
+                                      1.,1.,
+                                      &Feno->fit_properties))>=THREAD_EVENT_STOP))
+          {
+            rc=ERROR_SetLast(__func__,ERROR_TYPE_WARNING,ERROR_ID_REF_ALIGNMENT,Feno->windowName);
+            goto EndAlignReference;
+          }
 
-          mediateResponseCellInfo(indexPage,indexLine++,indexColumn,responseHandle,"Shift Ref1/Ref2","%#10.3e +/- %#10.3e",shift,sigma_shift);
-          mediateResponseCellInfo(indexPage,indexLine++,indexColumn,responseHandle,"Stretch Ref1/Ref2","%#10.3e +/-%#10.3e",stretch,sigma_stretch);
-          mediateResponseCellInfo(indexPage,indexLine++,indexColumn,responseHandle,"Stretch2 Ref1/Ref2","%#10.3e +/- %#10.3e",stretch2,sigma_stretch2);
+        for (j=0,lambda0=Lambda[(SvdPDeb+SvdPFin)/2];j<Feno->NDET;j++) // This is used only for spectra display
+         {
+          x0=Lambda[j]-lambda0;
+          Lambda[j]=Lambda[j]-(pResults->Shift+(pResults->Stretch+pResults->Stretch2*x0)*x0);
+         }
 
-          ANALYSE_indexLine=indexLine+1;
-        }
-      }
-      TabFeno[indexFenoColumn][WrkFeno].Decomp=1; // CHECK: why? seems Decomp is already == 1 here anyway
-    }
-  }
+        if (refFlag==2)
+         {
+          TabFeno[indexFenoColumn][WrkFeno].ShiftS=TabFeno[indexFenoColumn][WrkFeno].ShiftN=pResults->Shift;
+          TabFeno[indexFenoColumn][WrkFeno].StretchS=TabFeno[indexFenoColumn][WrkFeno].StretchN=pResults->Stretch;
+          TabFeno[indexFenoColumn][WrkFeno].Stretch2S=TabFeno[indexFenoColumn][WrkFeno].Stretch2N=pResults->Stretch2;
+         }
+        else if (refFlag==3)
+         {
+          TabFeno[indexFenoColumn][WrkFeno].ShiftS=pResults->Shift;
+          TabFeno[indexFenoColumn][WrkFeno].StretchS=pResults->Stretch;
+          TabFeno[indexFenoColumn][WrkFeno].Stretch2S=pResults->Stretch2;
+         }
+        else
+         {
+          TabFeno[indexFenoColumn][WrkFeno].Shift=pResults->Shift;
+          TabFeno[indexFenoColumn][WrkFeno].Stretch=pResults->Stretch;
+          TabFeno[indexFenoColumn][WrkFeno].Stretch2=pResults->Stretch2;
+         }
+
+        // Display fit
+
+        if (Feno->displayRefEtalon && pEngineContext->project.spectra.displaySpectraFlag) {
+
+          memcpy(ANALYSE_secX,ANALYSE_zeros,sizeof(double)*Feno->NDET);
+
+          for (i=SvdPDeb;i<SvdPFin;i++)
+           ANALYSE_secX[i]=exp(log(Spectre[i])+ANALYSE_absolu[i]);
+
+          if (ANALYSE_swathSize == 1) {
+           sprintf(tabTitle,"%s results (%d/%d)",Feno->windowName,TabFeno[indexFenoColumn][WrkFeno].indexRef,pEngineContext->recordNumber);
+          } else {
+           sprintf(tabTitle,"%s results (record %d/%d, measurement %d/%d, row %d/%d)",
+                   Feno->windowName,TabFeno[indexFenoColumn][WrkFeno].indexRef,pEngineContext->recordNumber,
+                   1+pEngineContext->recordInfo.i_alongtrack,pEngineContext->recordInfo.n_alongtrack,
+                   1+pEngineContext->recordInfo.i_crosstrack,pEngineContext->recordInfo.n_crosstrack);
+          }
+
+          sprintf(string,"Alignment Ref1/Ref2");
+
+          mediateAllocateAndSetPlotData(&spectrumData[0],"Measured",&Lambda[SvdPDeb],&Spectre[SvdPDeb],SvdPFin-SvdPDeb+1,Line);
+          mediateAllocateAndSetPlotData(&spectrumData[1],"Calculated",&Lambda[SvdPDeb],&ANALYSE_secX[SvdPDeb],SvdPFin-SvdPDeb+1,Line);
+          mediateResponsePlotData(indexPage,spectrumData,2,Spectrum,forceAutoScale,string,"Wavelength (nm)","Intensity", responseHandle);
+          mediateResponseLabelPage(indexPage,pEngineContext->fileInfo.fileName, "Reference", responseHandle);
+          mediateReleasePlotData(&spectrumData[1]);
+          mediateReleasePlotData(&spectrumData[0]);
+
+          if (pEngineContext->satelliteFlag)
+           {
+            ANALYSE_plotRef=1;
+            indexLine=ANALYSE_indexLine;
+
+            mediateResponseCellInfo(plotPageRef,indexLine++,indexColumn,responseHandle,"ALIGNMENT REF1/REF2 IN","%s",Feno->windowName);
+
+            mediateResponseCellInfo(indexPage,indexLine++,indexColumn,responseHandle,"Shift Ref1/Ref2","%#10.3e +/- %#10.3e",pResults->Shift,pResults->SigmaShift);
+            mediateResponseCellInfo(indexPage,indexLine++,indexColumn,responseHandle,"Stretch Ref1/Ref2","%#10.3e +/-%#10.3e",pResults->Stretch,pResults->SigmaStretch);
+            mediateResponseCellInfo(indexPage,indexLine++,indexColumn,responseHandle,"Stretch2 Ref1/Ref2","%#10.3e +/- %#10.3e",pResults->Stretch2,pResults->SigmaStretch2);
+
+            ANALYSE_indexLine=indexLine+1;
+           }
+         }
+
+        TabFeno[indexFenoColumn][WrkFeno].Decomp=1;
+       }
+      LINEAR_free(Feno->fit_properties.linfit);
+     }
+   }
+
+  // Return
+
+ EndAlignReference :
+
+  if (RefTabFeno!=NULL)
+   MEMORY_ReleaseBuffer(__func__,"RefTabFeno",RefTabFeno);
+
+#if defined(__DEBUG_) && __DEBUG_
+  DEBUG_FunctionStop(__func__,rc);
+#endif
 
   return rc;
 }
@@ -1975,7 +2031,7 @@ RC ANALYSE_Function(double *spectrum_orig, double *reference, const double *Sigm
     if ( (rc=ShiftVector(LambdaSpec, spectrum_orig, SplineSpec, spectrum_interpolated, n_wavel,
                          shift_rad, stretch_rad, stretch2_rad,
                          0., 0., 0., fitParamsF, -1, 0, indexFenoColumn))!=ERROR_ID_NO ||
-         (Feno->useUsamp && pUsamp->method==PRJCT_USAMP_AUTOMATIC && (rc=ANALYSE_UsampBuild(2,ITEM_NONE,indexFenoColumn))!=ERROR_ID_NO) )
+         (Feno->useUsamp && pUsamp->method==PRJCT_USAMP_AUTOMATIC && (rc=ANALYSE_UsampBuild(2,ITEM_NONE))!=ERROR_ID_NO) )
 
       goto EndFunction;
 
@@ -1986,7 +2042,8 @@ RC ANALYSE_Function(double *spectrum_orig, double *reference, const double *Sigm
    // Filter real time only when fitting difference of resolution between spectrum and reference
 
    if ((Feno->analysisType==ANALYSIS_TYPE_FWHM_NLFIT) && (ANALYSE_plFilter->filterFunction!=NULL) &&
-       ((rc=FILTER_Vector(ANALYSE_plFilter,&spectrum_interpolated[LimMin],&spectrum_interpolated[LimMin],LimN,PRJCT_FILTER_OUTPUT_LOW))!=0)) {
+       ((rc=FILTER_Vector(ANALYSE_plFilter,&spectrum_interpolated[LimMin],&spectrum_interpolated[LimMin],LimN,PRJCT_FILTER_OUTPUT_LOW))!=0))
+    {
      rc=ERROR_SetLast("EndFunction",ERROR_TYPE_WARNING,ERROR_ID_ANALYSIS,analyseIndexRecord,"Filter");
      goto EndFunction;
     }
@@ -2149,11 +2206,16 @@ RC ANALYSE_Function(double *spectrum_orig, double *reference, const double *Sigm
                }
                break;
              case LINEAR_OFFSET_REF: {
-               // offset normalized w.r.t. the reference.
-               const double * const offset_ref = reference;
+               // offset normalized w.r.t. the reference. We want to
+               // use "ref1" if available, the irradiance (from "ref1" or embedded in L1
+               // file) for satellites, or the automatic reference spectrum
+
+               // if "SrefEtalon" is available, it contains
+               // user-chosen ref1, ref2, or the satellite irradiance. Otherwise, use current reference
+               const double * const offset_ref = Feno->useEtalon ? Feno->SrefEtalon : reference;
                for( int k=1,l=iterator_start(&my_iterator, global_doas_spectrum); l != ITERATOR_FINISHED; k++,l=iterator_next(&my_iterator)) {
                  fitprops->A[indexSvdA][k]=pTabCross->vector[l]= (fabs(offset_ref[l])> 1.e-6)
-                   ? Feno->ymean/offset_ref[l]    // !!!! XMEAN -> YMEAN
+                   ? Feno->xmean/offset_ref[l]
                    : 0.;
                }
              }
@@ -2283,7 +2345,6 @@ RC ANALYSE_Function(double *spectrum_orig, double *reference, const double *Sigm
       if (Feno->analysisMethod==OPTICAL_DENSITY_FIT) {
         LINEAR_set_weight(fitprops->linfit, SigmaY);
         rc = LINEAR_decompose(fitprops->linfit,fitprops->SigmaSqr,fitprops->covar);
-
         if (rc != ERROR_ID_NO)
           goto EndFunction;
       }
@@ -2547,6 +2608,11 @@ RC ANALYSE_Function(double *spectrum_orig, double *reference, const double *Sigm
 /*         and are computed by singular value decomposition of cross         */
 /*         sections matrix.                                                  */
 /*                                                                           */
+
+
+#if defined(__BC32_) && __BC32_
+#pragma argsused
+#endif
 RC ANALYSE_CurFitMethod(INDEX indexFenoColumn,  // for OMI
                         const double *Spectre,          // raw spectrum
                         const double *SigmaSpec,        // error on raw spectrum
@@ -2576,6 +2642,7 @@ RC ANALYSE_CurFitMethod(INDEX indexFenoColumn,  // for OMI
     scalingFactor;
 
   //  int i,j,k,l;                                             // indexes for loops and arrays
+  INDEX indexFeno;
   int useErrors;
   int niter;
   RC rc;                                                 // return code
@@ -2630,15 +2697,16 @@ RC ANALYSE_CurFitMethod(INDEX indexFenoColumn,  // for OMI
     // Fwhm adjustment between spectrum and reference
     // ----------------------------------------------
 
-    if (!Feno->hidden && (Feno->useKurucz!=ANLYS_KURUCZ_SPEC)) {
+    if (!Feno->hidden && (Feno->useKurucz!=ANLYS_KURUCZ_SPEC))
+     {
       // Resolution adjustment using fwhm(lambda) found by Kurucz procedure for spectrum and reference
 
       if (pKuruczOptions->fwhmFit && (Feno->useKurucz==ANLYS_KURUCZ_REF_AND_SPEC))
         rc=AnalyseFwhmCorrectionK(Spectre,Sref,SpecTrav,RefTrav,n_wavel,indexFenoColumn);
 
       if (rc)
-        goto EndCurFitMethod;
-    }
+       goto EndCurFitMethod;
+     }
 
     // -----------------------------
     // Filter spectrum and reference
@@ -2708,7 +2776,7 @@ RC ANALYSE_CurFitMethod(INDEX indexFenoColumn,  // for OMI
     // Calculation of second derivatives
     // ---------------------------------
 
-    if (((rc=SPLINE_Deriv2(LambdaSpec,SpecTrav,SplineSpec,n_wavel,"ANALYSE_CurFitMethod (LambdaSpec) "))!=0) || // !!! ANALYSE_splineX -> LambdaSpec
+    if (((rc=SPLINE_Deriv2(LambdaSpec,SpecTrav,SplineSpec,n_wavel,"ANALYSE_CurFitMethod (ANALYSE_splineX) "))!=0) || // !!! ANALYSE_splineX -> LambdaSpec
         ((rc=SPLINE_Deriv2(ANALYSE_splineX,RefTrav,SplineRef,n_wavel,"ANALYSE_CurFitMethod (ANALYSE_splineX) "))!=0))
 
      goto EndCurFitMethod;
@@ -2717,7 +2785,6 @@ RC ANALYSE_CurFitMethod(INDEX indexFenoColumn,  // for OMI
     // Initialization of concentrations
     // --------------------------------
 
-    int indexFeno; // TODO: this search fails for calls from alignreference because we work with a different copy of Feno
     for (indexFeno=0;indexFeno<NFeno;indexFeno++)
      if (!TabFeno[indexFenoColumn][indexFeno].hidden &&
          (Feno==&TabFeno[indexFenoColumn][indexFeno]))
@@ -2747,7 +2814,7 @@ RC ANALYSE_CurFitMethod(INDEX indexFenoColumn,  // for OMI
                 if (!strcasecmp(WorkSpace[TabCross[i].Comp].symbolName,"bro") &&
                     (ANALYSIS_broAmf.matrix!=NULL) &&
                     !SPLINE_Vector(ANALYSIS_broAmf.matrix[0],ANALYSIS_broAmf.matrix[1],ANALYSIS_broAmf.deriv2[1],
-                                   ANALYSIS_broAmf.nl,&ZM,&scalingFactor,1,SPLINE_CUBIC))
+                                   ANALYSIS_broAmf.nl,&ZM,&scalingFactor,1,SPLINE_CUBIC,__func__))
 
                  fitParamsC[TabCross[i].IndSvdA]=TabFeno[indexFenoColumn][indexFeno2].TabCrossResults[j].SlntCol*scalingFactor;
                 else
@@ -2970,9 +3037,11 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
 
   CROSS_REFERENCE *TabCross;                 // list of symbols hold by a analysis window
   CROSS_RESULTS *Results;                    // corresponding results
+  FENO *pTabFeno;
   char windowTitle[MAX_ITEM_TEXT_LEN];    // window title for graphs
   char tabTitle[MAX_ITEM_TEXT_LEN];
   char graphTitle[MAX_ITEM_TEXT_LEN];     // graph title
+  INDEX WrkFeno,j;                             // index on analysis windows
   INDEX i;                               // indexes for loops and arrays
   INDEX indexFenoColumn;
 
@@ -3044,12 +3113,12 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
 
     memcpy(Spectre,pBuffers->spectrum,sizeof(double)*n_wavel);
 
-    if ( (pRecord->rc=rc=VECTOR_NormalizeVector(Spectre-1,n_wavel,&speNormFact,"ANALYSE_Spectrum (Spectrum) "))!=ERROR_ID_NO ) {
+    if ( (rc=VECTOR_NormalizeVector(Spectre-1,n_wavel,&speNormFact,"ANALYSE_Spectrum (Spectrum) "))!=ERROR_ID_NO )
      goto EndAnalysis;
-    }
+
     // Apply Kurucz on spectrum
 
-    for (int WrkFeno=0;WrkFeno<NFeno;WrkFeno++)
+    for (WrkFeno=0;WrkFeno<NFeno;WrkFeno++)
      if (!TabFeno[indexFenoColumn][WrkFeno].hidden && !TabFeno[indexFenoColumn][WrkFeno].rc &&
          ((TabFeno[indexFenoColumn][WrkFeno].useKurucz==ANLYS_KURUCZ_REF_AND_SPEC) ||
           (TabFeno[indexFenoColumn][WrkFeno].useKurucz==ANLYS_KURUCZ_SPEC)))
@@ -3059,70 +3128,65 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
     if (useKurucz || (THRD_id==THREAD_TYPE_KURUCZ))
      {
       if (((SpectreK=(double *)MEMORY_AllocDVector(__func__,"SpectreK",0,n_wavel-1))==NULL) ||
-          ((LambdaK=(double *)MEMORY_AllocDVector(__func__,"LambdaK",0,n_wavel-1))==NULL)) {
+          ((LambdaK=(double *)MEMORY_AllocDVector(__func__,"LambdaK",0,n_wavel-1))==NULL))
 
        rc=ERROR_ID_ALLOC;
 
-      } else {
+      else
+       {
         memcpy(SpectreK,Spectre,sizeof(double)*n_wavel);
         if (!(rc=KURUCZ_Spectrum(pBuffers->lambda,LambdaK,SpectreK,KURUCZ_buffers[indexFenoColumn].solar,pBuffers->instrFunction,
                                  1,"Calibration applied on spectrum",KURUCZ_buffers[indexFenoColumn].fwhmPolySpec,KURUCZ_buffers[indexFenoColumn].fwhmVector,KURUCZ_buffers[indexFenoColumn].fwhmDeriv2,saveFlag,
                                  KURUCZ_buffers[indexFenoColumn].indexKurucz,responseHandle,indexFenoColumn))) {
 
-          for (int WrkFeno=0;WrkFeno<NFeno;++WrkFeno) {
-            FENO *pTabFeno=&TabFeno[indexFenoColumn][WrkFeno];
-            if (!pTabFeno->hidden && (pTabFeno->useKurucz==ANLYS_KURUCZ_SPEC)) {
-              memcpy(pTabFeno->LambdaK,LambdaK,sizeof(double)*n_wavel);
-              memcpy(pTabFeno->Lambda,LambdaK,sizeof(double)*n_wavel);
+         for (WrkFeno=0,pTabFeno=&TabFeno[indexFenoColumn][WrkFeno];WrkFeno<NFeno;pTabFeno=&TabFeno[indexFenoColumn][++WrkFeno])
+          if (!pTabFeno->hidden && (pTabFeno->useKurucz==ANLYS_KURUCZ_SPEC))
+           {
+            memcpy(pTabFeno->LambdaK,LambdaK,sizeof(double)*n_wavel);
+            memcpy(pTabFeno->Lambda,LambdaK,sizeof(double)*n_wavel);
 
-              if ((pRecord->rc=rc=KURUCZ_ApplyCalibration(pTabFeno,LambdaK,indexFenoColumn))!=ERROR_ID_NO)
-                goto EndAnalysis;
-            }
-          }
+            if ((rc=KURUCZ_ApplyCalibration(pTabFeno,LambdaK,indexFenoColumn))!=ERROR_ID_NO)
+             goto EndAnalysis;
+           }
         }
 
         memcpy(SpectreK,Spectre,sizeof(double)*n_wavel); // !!!
        }
 
       if (rc>=THREAD_EVENT_STOP)
-       {
-        pRecord->rc=rc;
-        goto EndAnalysis;
-       }
+       goto EndAnalysis;
      }
 
     pRecord->BestShift=(double)0.;
 
-    if (THRD_id==THREAD_TYPE_ANALYSIS) {
+    if (THRD_id==THREAD_TYPE_ANALYSIS)
+     {
+
       // Browse analysis windows
-      for (int WrkFeno=0;(WrkFeno<NFeno) && (rc!=THREAD_EVENT_STOP);WrkFeno++) {
+
+      for (WrkFeno=0;(WrkFeno<NFeno) && (rc!=THREAD_EVENT_STOP);WrkFeno++)
+       {
        	indexPage=WrkFeno+plotPageAnalysis;
         Feno=&TabFeno[indexFenoColumn][WrkFeno];
 
-        // MAXDOAS measurements : Thomas Wagner request -> add the possibility to select a reference spectrum with an elevation angle different from zenith.
-        // This should be improved and move to engine.c in one of the functions dedicated to the selection of the reference spectrum
+        Feno->rc=ERROR_ID_NO;
+        Feno->rc=(!Feno->hidden && (VECTOR_Equal(Spectre,Feno->Sref,n_wavel,(double)1.e-7) ||
 
-        if (!Feno->hidden &&
-            (VECTOR_Equal(Spectre,Feno->Sref,n_wavel, 1.e-7) ||
-             (!pEngineContext->satelliteFlag && Feno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC &&
-              (( Feno->refMaxdoasSelectionMode==ANLYS_MAXDOAS_REF_SZA &&             // Additional security (in principle, if one twilight is missing,
-                 ((pRecord->localTimeDec<=12. && Feno->indexRefMorning==ITEM_NONE) || // use ref of the other twilight, if both twilights are missing, exit)
-                  (pRecord->localTimeDec>12. && Feno->indexRefAfternoon==ITEM_NONE))) ||
+                 ((Feno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC) &&      // Additional security (in principle, if one twilight is missing, use ref of the other twilight
+                  (Feno->refMaxdoasSelectionMode==ANLYS_MAXDOAS_REF_SZA) &&                    // if both twilights are missing, exit
+                 (((pRecord->localTimeDec<=12.) && (Feno->indexRefMorning==ITEM_NONE)) ||
+                  ((pRecord->localTimeDec>12.) && (Feno->indexRefAfternoon==ITEM_NONE)))) ||
 
-               (Feno->refMaxdoasSelectionMode==ANLYS_MAXDOAS_REF_SCAN &&
-                pRecord->elevationViewAngle>=pEngineContext->project.spectra.refAngle-pEngineContext->project.spectra.refTol &&
-                pRecord->elevationViewAngle<=pEngineContext->project.spectra.refAngle+pEngineContext->project.spectra.refTol))))) {
-          Feno->rc = -1;
-        } else {
-          Feno->rc = ERROR_ID_NO;
-        }
+
+                 ((Feno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC) &&
+                  (Feno->refMaxdoasSelectionMode==ANLYS_MAXDOAS_REF_SCAN) &&
+                  (pRecord->elevationViewAngle>=pEngineContext->project.spectra.refAngle-pEngineContext->project.spectra.refTol) &&
+                  (pRecord->elevationViewAngle<=pEngineContext->project.spectra.refAngle+pEngineContext->project.spectra.refTol))))?-1:ERROR_ID_NO;
+
         sprintf(windowTitle,"Analysis results for %s window",Feno->windowName);
-
-        // OMI/OMPS/TROPOMI : at this step, the irradiance is not available yet (in separate files)
 
         switch (pEngineContext->project.instrumental.readOutFormat) {
         case PRJCT_INSTR_FORMAT_OMI:
-        case PRJCT_INSTR_FORMAT_OMPS:
         case PRJCT_INSTR_FORMAT_TROPOMI:
           memcpy(Feno->Lambda,pBuffers->lambda,sizeof(double)*n_wavel);
           break;
@@ -3136,11 +3200,11 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
         } else {
           sprintf(tabTitle,"%s results (record %d/%d, measurement %d/%d, row %d/%d)",
                   Feno->windowName,pEngineContext->indexRecord,pEngineContext->recordNumber,
-                  1+pEngineContext->recordInfo.i_alongtrack,pEngineContext->n_alongtrack,
-                  1+pEngineContext->recordInfo.i_crosstrack,pEngineContext->n_crosstrack);
+                  1+pEngineContext->recordInfo.i_alongtrack,pEngineContext->recordInfo.n_alongtrack,
+                  1+pEngineContext->recordInfo.i_crosstrack,pEngineContext->recordInfo.n_crosstrack);
         }
 
-        displayFlag=Feno->displaySpectrum+                            //  force display spectrum
+        displayFlag=Feno->displaySpectrum+                                      //  force display spectrum
           Feno->displayResidue+                                       //  force display residue
           Feno->displayTrend+                                         //  force display trend
           Feno->displayRefEtalon+                                     //  force display alignment of reference on etalon
@@ -3157,10 +3221,9 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
 
           if (Feno->amfFlag ||
               ((Feno->useKurucz==ANLYS_KURUCZ_REF_AND_SPEC) && Feno->xsToConvolute) ||
-              ( (Feno->linear_offset_mode == LINEAR_OFFSET_RAD) && (Feno->analysisMethod==OPTICAL_DENSITY_FIT))) {
-            // fit a linear offset using the inverse of the spectrum
-            Feno->Decomp=1;
-          }
+              ( (Feno->linear_offset_mode == LINEAR_OFFSET_RAD) && (Feno->analysisMethod==OPTICAL_DENSITY_FIT)))   // fit a linear offset using the inverse of the spectrum
+
+           Feno->Decomp=1;
 
           // Local variables initializations
 
@@ -3171,50 +3234,25 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
 
           // Reference spectrum
 
-          if (Feno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC) {
-            switch(pEngineContext->project.instrumental.readOutFormat) {
-            case PRJCT_INSTR_FORMAT_OMPS:
-              rc=ERROR_SetLast(__func__, ERROR_TYPE_FATAL, ERROR_ID_NETCDF, "Automatic reference selection not implemented for this file format");
-              break;
-            case PRJCT_INSTR_FORMAT_GDP_BIN:                                          // GOME1NETCDF !!!!!!
-              rc = GDP_BIN_get_vza_ref(pRecord->gome.pixelType, WrkFeno, Feno);
-              break;
-            case PRJCT_INSTR_FORMAT_GOME2:
-              rc = GOME2_get_vza_ref(pRecord->satellite.vza, WrkFeno, Feno);
-              break;
-            case PRJCT_INSTR_FORMAT_SCIA_PDS:
-              rc = SCIA_get_vza_ref(pRecord->satellite.vza, WrkFeno, Feno);
-              break;
-            default:
-              break;
-            }
-          }
-          if (rc)
-            goto EndAnalysis;
-
           memcpy(Sref,Feno->Sref,sizeof(double)*n_wavel);
           Lambda=Feno->LambdaK;
           LambdaSpec=Feno->Lambda;
 
-          // For OMI, OMPS, Tropomi and GOME-2, interpolate earthshine          // FRM4DOAS : check with Michel what to do with ASCII spectra
+          // For OMI, Tropomi and GOME-2, interpolate earthshine                // FRM4DOAS : check with Michel what to do with ASCII spectra
           // spectrum onto the solar reference wavelength grid
-          // to replace by is_satellite !!!!
-
           if (pInstrumental->readOutFormat == PRJCT_INSTR_FORMAT_OMI
-              || pInstrumental->readOutFormat == PRJCT_INSTR_FORMAT_OMPS
               || pInstrumental->readOutFormat == PRJCT_INSTR_FORMAT_TROPOMI
-              || pInstrumental->readOutFormat == PRJCT_INSTR_FORMAT_GOME1_NETCDF          // ??????????????????????????????
               || pInstrumental->readOutFormat == PRJCT_INSTR_FORMAT_GOME2 ) {
 
             double *spec_deriv2 = malloc(n_wavel * sizeof(*spec_deriv2));
             rc = SPLINE_Deriv2(pBuffers->lambda, pBuffers->spectrum, spec_deriv2, n_wavel, __func__);
             if (rc == ERROR_ID_NO)
-              rc = SPLINE_Vector(pBuffers->lambda, pBuffers->spectrum, spec_deriv2, n_wavel, Feno->LambdaRef, Spectre, n_wavel, SPLINE_CUBIC);
+              rc = SPLINE_Vector(pBuffers->lambda, pBuffers->spectrum, spec_deriv2, n_wavel, Feno->LambdaRef, Spectre, n_wavel, SPLINE_CUBIC, __func__);
             free(spec_deriv2);
             if (rc == ERROR_ID_NO)
               rc=VECTOR_NormalizeVector(Spectre-1,n_wavel,&speNormFact,__func__);
             if (rc != ERROR_ID_NO)
-             goto EndAnalysis;
+              goto EndAnalysis;
 
             // after putting earthshine on reference grid, assign the
             // Kurucz-corrected reference grid LambdaK to the
@@ -3222,13 +3260,16 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
             LambdaSpec = Feno->LambdaK;
           }
 
+
+
           // Make a backup of spectral window limits + gaps
 
           old_range = spectrum_copy(Feno->fit_properties.specrange);
 
           if ((pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_OMI) &&
               pInstrumental->omi.pixelQFRejectionFlag &&
-              (pEngineContext->recordInfo.omi.omiPixelQF!=NULL) && (Feno->omiRejPixelsQF!=NULL)) {
+              (pEngineContext->recordInfo.omi.omiPixelQF!=NULL) && (Feno->omiRejPixelsQF!=NULL))
+           {
             unsigned short *pixelQF=(unsigned short *)pEngineContext->recordInfo.omi.omiPixelQF;
 
             memset(Feno->omiRejPixelsQF,0,sizeof(int)*Feno->NDET);
@@ -3240,7 +3281,7 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
               {
                spectrum_remove_pixel(Feno->fit_properties.specrange,j);
                Feno->omiRejPixelsQF[j]=1;
-             }
+              }
 
             if ((spectrum_num_windows(Feno->fit_properties.specrange) > pInstrumental->omi.pixelQFMaxGaps) ||
                 ((rc=reinit_analysis(Feno, n_wavel))!=ERROR_ID_NO))
@@ -3251,26 +3292,78 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
               rc=ERROR_SetLast(__func__,ERROR_TYPE_WARNING,ERROR_ID_OMI_PIXELQF);
               goto EndAnalysis;
              }
-           } else if ((rc=ANALYSE_SvdInit(Feno,&Feno->fit_properties, n_wavel, Feno->LambdaK))!=ERROR_ID_NO)
+           }
+          else if ((rc=ANALYSE_SvdInit(Feno,&Feno->fit_properties, n_wavel))!=ERROR_ID_NO)
             goto EndAnalysis;
 
           // Global variables initializations
 
-          // TODO: check about undersampling in case of GOME/GOME-2/Scia automatic reference
-          // Undersampling
-//          if (!Feno->useKurucz &&
-//              (((rc=KURUCZ_ApplyCalibration(Feno,Feno->LambdaK,indexFenoColumn))!=ERROR_ID_NO) ||
-//               ((rc=ANALYSE_SvdInit(&Feno->svd, n_wavel))!=ERROR_ID_NO)))
-//
-//            goto EndAnalysis;
-//
-//          if (Feno->useUsamp && (THRD_id!=THREAD_TYPE_KURUCZ)) {
-//            // ANALYSE_UsampLocalFree();
-//
-//            if (((rc=ANALYSE_UsampLocalAlloc(0))!=ERROR_ID_NO) ||
-//                ((rc=ANALYSE_UsampBuild(2,ITEM_NONE))!=ERROR_ID_NO))
-//              goto EndAnalysis;
-//          }
+          if ((Feno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC) &&
+              pEngineContext->satelliteFlag) {
+            if (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_TROPOMI) {
+              rc=ERROR_SetLast(__func__, ERROR_TYPE_FATAL, ERROR_ID_NETCDF, "Automatic reference selection not implemented for Tropomi");
+              goto EndAnalysis;
+            }
+            if (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_OMI) {
+              memcpy(Feno->Sref,Feno->SrefN,sizeof(double)*n_wavel); // TD quick test for omi
+              Feno->Shift=Feno->ShiftN;
+              Feno->Stretch=Feno->StretchN;
+              Feno->Stretch2=Feno->Stretch2N;
+              Feno->refNormFact=Feno->refNormFactN;
+
+              if (!Feno->useKurucz)
+                memcpy(Feno->LambdaK,Feno->LambdaN,sizeof(double)*n_wavel);
+
+            } else if ((fabs(ANALYSE_oldLatitude)>(double)360.) ||
+                       ((ANALYSE_oldLatitude>=(double)0.) && (pRecord->latitude<(double)0.)) ||
+                       ((ANALYSE_oldLatitude<(double)0.) && (pRecord->latitude>=(double)0.))) {
+              if (pRecord->latitude>=(double)0.) {
+                Feno->Shift=Feno->ShiftN;
+                Feno->Stretch=Feno->StretchN;
+                Feno->Stretch2=Feno->Stretch2N;
+                Feno->refNormFact=Feno->refNormFactN;
+
+                memcpy(Feno->Sref,Feno->SrefN,sizeof(double)*n_wavel);
+
+                if (!Feno->useKurucz)
+                  memcpy(Feno->LambdaK,Feno->LambdaN,sizeof(double)*n_wavel);
+
+              } else {
+                Feno->Shift=Feno->ShiftS;
+                Feno->Stretch=Feno->StretchS;
+                Feno->Stretch2=Feno->Stretch2S;
+                Feno->refNormFact=Feno->refNormFactS;
+
+                memcpy(Feno->Sref,Feno->SrefS,sizeof(double)*n_wavel);
+
+                if (!Feno->useKurucz)
+                  memcpy(Feno->LambdaK,Feno->LambdaS,sizeof(double)*n_wavel);
+              }
+
+              // Undersampling
+
+              if (!Feno->useKurucz &&
+                  (((rc=KURUCZ_ApplyCalibration(Feno,Feno->LambdaK,indexFenoColumn))!=ERROR_ID_NO) ||
+                   ((rc=ANALYSE_SvdInit(Feno, &Feno->fit_properties, n_wavel))!=ERROR_ID_NO)))
+
+                goto EndAnalysis;
+
+              if (Feno->useUsamp && (THRD_id!=THREAD_TYPE_KURUCZ)) {
+                // ANALYSE_UsampLocalFree();
+
+                if (((rc=ANALYSE_UsampLocalAlloc(0))!=ERROR_ID_NO) ||
+                    ((rc=ANALYSE_UsampBuild(2,ITEM_NONE))!=ERROR_ID_NO))
+                  goto EndAnalysis;
+               }
+            }
+          }
+
+          // Reference spectrum // TD: remove?
+
+          memcpy(Sref,Feno->Sref,sizeof(double)*n_wavel);
+          Lambda=Feno->LambdaK;
+
+          // TD: end remove
 
           // Display spectrum in the current analysis window
 
@@ -3283,7 +3376,7 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
            {
             double *spectre_plot = malloc(n_wavel * sizeof(double));
             // in case spectrum & reference have different wavelength grids (shift in pixels): interpolate Spectre on the grid of the reference
-            rc = SPLINE_Vector(LambdaSpec, Spectre, NULL, n_wavel, Feno->LambdaK, spectre_plot, n_wavel, SPLINE_LINEAR);
+            rc = SPLINE_Vector(LambdaSpec, Spectre, NULL, n_wavel, Feno->LambdaK, spectre_plot, n_wavel, SPLINE_LINEAR, __func__);
 
             double *curves[2][2] = {{Feno->LambdaK, spectre_plot},
                                     {Feno->LambdaK, Sref}};
@@ -3345,20 +3438,21 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
 
           // Display residual spectrum
 
-          if  (Feno->displayResidue) {
+          if  (Feno->displayResidue)
+           {
             if (Feno->analysisMethod!=OPTICAL_DENSITY_FIT)
-              for (int j=SvdPDeb;j<=SvdPFin;j++)
-                ANALYSE_absolu[j]=(ANALYSE_tc[j]!=(double)0.)?ANALYSE_absolu[j]/ANALYSE_tc[j]:(double)0.;
+             for (j=SvdPDeb;j<=SvdPFin;j++)
+              ANALYSE_absolu[j]=(ANALYSE_tc[j]!=(double)0.)?ANALYSE_absolu[j]/ANALYSE_tc[j]:(double)0.;
 
             sprintf(graphTitle,"%s (%.2le)",(Feno->analysisMethod!=OPTICAL_DENSITY_FIT)?"Normalized Residual":"Residual",Feno->RMS);
 
             double *curves[1][2] = {{Feno->LambdaK,ANALYSE_absolu}};
             plot_curves(indexPage,curves,1,Residual,0,graphTitle, responseHandle, Feno->fit_properties.specrange);
-          }
+           }
 
           if (Feno->analysisMethod!=OPTICAL_DENSITY_FIT)
-           for (int j=SvdPDeb;j<=SvdPFin;j++)
-             ANALYSE_absolu[j]= (ANALYSE_t[j]>0.) ? log(ANALYSE_t[j]) : 0.;
+           for (j=SvdPDeb;j<=SvdPFin;j++)
+            ANALYSE_absolu[j]=(ANALYSE_t[j]>(double)0.)?log(ANALYSE_t[j]):(double)0.;
 
           if (strlen(Feno->residualsFile) &&
               ((rc=AnalyseSaveResiduals(Feno->residualsFile,pEngineContext,n_wavel))!=ERROR_ID_NO))
@@ -3486,7 +3580,8 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
           else
            irc++;
 
-          if (displayFlag && saveFlag) {
+          if (displayFlag && saveFlag)
+           {
             indexLine = Feno->displayLineIndex;
             indexColumn=2;
 
@@ -3515,7 +3610,8 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
 
             indexLine++;
 
-            for (i=0;i<Feno->NTabCross;i++) {
+            for (i=0;i<Feno->NTabCross;i++)
+             {
               mediateResponseCellDataString(indexPage,indexLine,indexColumn,WorkSpace[TabCross[i].Comp].symbolName,responseHandle);
               // -------------------------------------------------------------------
               if (TabCross[i].IndSvdA)
@@ -3538,24 +3634,27 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
              }  // for (i=0;i<Feno->NTabCross;i++)
            }  // if (displayFlag && saveFlag)
 
-          // Recover spectral window limits and gaps which were possibly modified after spike removal
+          // Recover spectral window limits and gaps eventually modified after spike removal
 
-          if (!spectrum_isequal(old_range,Feno->fit_properties.specrange)) {
+          if (!spectrum_isequal(old_range,Feno->fit_properties.specrange))
+           {
             //AnalyseCopyFenetre(Feno->fit_properties.Fenetre,&Feno->fit_properties.Z,oldFenetre,oldZ);
             spectrum_destroy(Feno->fit_properties.specrange);
             Feno->fit_properties.specrange = old_range;
             Feno->fit_properties.DimL = spectrum_length(Feno->fit_properties.specrange);
             Feno->Decomp = 1;
-          } else {
-            spectrum_destroy(old_range);
-          }
+           }
+          else
+           spectrum_destroy(old_range);
 
          }  // if (!Feno->hidden && (Feno->rcKurucz==ERROR_ID_NO) &&
        }  // for (WrkFeno=0;(WrkFeno<NFeno) && (rc!=THREAD_EVENT_STOP);WrkFeno++)
      }  // if (THRD_id==THREAD_TYPE_ANALYSIS)
 
     if (NbFeno)
-      pRecord->BestShift/=(double)NbFeno;
+     pRecord->BestShift/=(double)NbFeno;
+
+    ANALYSE_oldLatitude=pRecord->latitude;
 
     // Output : save all records (including those with a not null return code for all analysis windows - for example : log error on spectrum)
     //
@@ -3565,24 +3664,23 @@ RC ANALYSE_Spectrum(ENGINE_CONTEXT *pEngineContext,void *responseHandle)
     EndAnalysis :
 
     if (!nrc)
-     {
-      for (int WrkFeno=0;WrkFeno<NFeno;WrkFeno++)
-        if (!TabFeno[indexFenoColumn][WrkFeno].hidden)
-         TabFeno[indexFenoColumn][WrkFeno].rc=rc;
+     for (WrkFeno=0;WrkFeno<NFeno;WrkFeno++)
+      if (!TabFeno[indexFenoColumn][WrkFeno].hidden)
+       TabFeno[indexFenoColumn][WrkFeno].rc=-1;
 
-      if (pRecord->rc==ERROR_ID_NO)
-       pRecord->rc=-1;
-     }
+    if ((pEngineContext->mfcDoasisFlag || (pEngineContext->lastSavedRecord!=pEngineContext->indexRecord)) &&
+        (   ((THRD_id==THREAD_TYPE_ANALYSIS) && pProject->asciiResults.analysisFlag && (!pEngineContext->project.asciiResults.successFlag || nrc))
+            || ((THRD_id==THREAD_TYPE_KURUCZ) && pProject->asciiResults.calibFlag) ) )
 
-//    if ((pEngineContext->mfcDoasisFlag || (pEngineContext->lastSavedRecord!=pEngineContext->indexRecord)) &&
-//        (   ((THRD_id==THREAD_TYPE_ANALYSIS) && pProject->asciiResults.analysisFlag && (!pEngineContext->project.asciiResults.successFlag /* || nrc */))
-//            || ((THRD_id==THREAD_TYPE_KURUCZ) && pProject->asciiResults.calibFlag) ) )
+     rcOutput=OUTPUT_SaveResults(pEngineContext,indexFenoColumn);
 
-//      rcOutput=OUTPUT_SaveResults(pEngineContext,indexFenoColumn);
-
-//    if (!rc)
-//      rc=rcOutput;
+    if (!rc)
+     rc=rcOutput;
    }
+
+  // Return
+
+  // EndAnalysis :
 
   if (Spectre!=NULL)
    MEMORY_ReleaseDVector(__func__,"Spectre",Spectre,0);
@@ -3656,21 +3754,28 @@ void ANALYSE_ResetData(void)
 
       // Reference spectra and wavelength scale
 
-      free(pTabFeno->ref_description);
-      pTabFeno->ref_description = NULL;
-
       if (pTabFeno->SrefEtalon!=NULL)
        MEMORY_ReleaseDVector(__func__,"SrefEtalon",pTabFeno->SrefEtalon,0);
       if (pTabFeno->Sref!=NULL)
        MEMORY_ReleaseDVector(__func__,"Sref",pTabFeno->Sref,0);
       if (pTabFeno->SrefSigma!=NULL)
        MEMORY_ReleaseDVector(__func__,"SrefSigma",pTabFeno->SrefSigma,0);
+      if (pTabFeno->SrefN!=NULL)
+       MEMORY_ReleaseDVector(__func__,"SrefN",pTabFeno->SrefN,0);
+      if (pTabFeno->SrefS!=NULL)
+       MEMORY_ReleaseDVector(__func__,"SrefS",pTabFeno->SrefS,0);
+      if (pTabFeno->LambdaN!=NULL)
+       MEMORY_ReleaseDVector(__func__,"LambdaN",pTabFeno->LambdaN,0);
+      if (pTabFeno->LambdaS!=NULL)
+       MEMORY_ReleaseDVector(__func__,"LambdaS",pTabFeno->LambdaS,0);
       if (pTabFeno->Lambda!=NULL)
        MEMORY_ReleaseDVector(__func__,"Lambda",pTabFeno->Lambda,0);
       if (pTabFeno->LambdaK!=NULL)
        MEMORY_ReleaseDVector(__func__,"LambdaK",pTabFeno->LambdaK,0);
       if (pTabFeno->LambdaRef!=NULL)
        MEMORY_ReleaseDVector(__func__,"LambdaRef",pTabFeno->LambdaRef,0);
+      if (pTabFeno->satelliteRef!=NULL)
+       MEMORY_ReleaseBuffer(__func__,"satelliteRef",pTabFeno->satelliteRef);
 
       // SVD matrices
 
@@ -3706,8 +3811,10 @@ void ANALYSE_ResetData(void)
 
       memset(pTabFeno,0,sizeof(FENO));
 
-      pTabFeno->Shift=pTabFeno->Stretch=pTabFeno->Stretch2=0.;
-      pTabFeno->refNormFact=1.;
+      pTabFeno->Shift=pTabFeno->ShiftN=pTabFeno->ShiftS=
+        pTabFeno->Stretch=pTabFeno->StretchN=pTabFeno->StretchS=
+        pTabFeno->Stretch2=pTabFeno->Stretch2N=pTabFeno->Stretch2S=(double) 0.;
+      pTabFeno->refNormFact=pTabFeno->refNormFactN=pTabFeno->refNormFactS=(double)1.;
 
       pTabFeno->refMaxdoasSelectionMode=ANLYS_MAXDOAS_REF_SZA;
 
@@ -4309,7 +4416,7 @@ RC ANALYSE_LoadLinear(ANALYSE_LINEAR_PARAMETERS *linearList,int nLinear,INDEX in
   CROSS_REFERENCE *pTabCross;                                                   // pointer to an element of the symbol cross reference table of an analysis window
   CROSS_RESULTS *pResults;                                                      // pointer to results
   WRK_SYMBOL *pWrkSymbol;                                                       // pointer to a general description of a symbol
-  char buttonText[15];                                                         // term in polynomial
+  char buttonText[10];                                                         // term in polynomial
   ANALYSE_LINEAR_PARAMETERS *pList;                                             // pointer to description of an item in list
   FENO *pTabFeno;                                                               // pointer to description of the current analysis window
   INDEX indexSvd,indexTabCross;                                                 // extra index for swapping
@@ -4622,6 +4729,10 @@ RC ANALYSE_LoadShiftStretch(const ANALYSIS_SHIFT_STRETCH *shiftStretchList,int n
 // --------------------------------------------------
 // AnalyseLoadPredefined : Load predefined parameters
 // --------------------------------------------------
+
+#if defined(__BC32_) && __BC32_
+#pragma argsused
+#endif
 RC ANALYSE_LoadNonLinear(ENGINE_CONTEXT *pEngineContext,ANALYSE_NON_LINEAR_PARAMETERS *nonLinearList,int nNonLinear,double *lambda,INDEX indexFenoColumn)
 {
   // Declarations
@@ -4912,6 +5023,10 @@ RC ANALYSE_LoadNonLinear(ENGINE_CONTEXT *pEngineContext,ANALYSE_NON_LINEAR_PARAM
 // ----------------------------------------------------------
 // AnalyseLoadGaps : Load gaps defined in an analysis windows
 // ----------------------------------------------------------
+
+#if defined(__BC32_) && __BC32_
+#pragma argsused
+#endif
 RC ANALYSE_LoadGaps(ENGINE_CONTEXT *pEngineContext, const ANALYSIS_GAP *gapList,int nGaps,double *lambda,double lambdaMin,double lambdaMax,INDEX indexFenoColumn)
 {
   // Declarations
@@ -5115,14 +5230,10 @@ RC ANALYSE_LoadRef(ENGINE_CONTEXT *pEngineContext,INDEX indexFenoColumn)
   pEngineContext->refFlag=0;
   pTabFeno->longPathFlag=ANALYSE_LONGPATH;                                      // !!! Anoop
 
-  pTabFeno->gomeRefFlag=(!is_satellite(pEngineContext->project.instrumental.readOutFormat))?1:0;
-
-                     //   ((pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_TROPOMI) &&   ?????
-                     //    (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_GOME1_NETCDF) &&
-                     //    (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_GDP_BIN) &&
-                     //    (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_SCIA_PDS) &&
-                     //    (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_GOME2) &&
-                     //    (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_OMPS) )?1:0;
+  pTabFeno->gomeRefFlag=((pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_GDP_ASCII)&&
+                         (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_GDP_BIN) &&
+                         (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_SCIA_PDS) &&
+                         (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_GOME2))?1:0;
 
   //
   // in the case of satellites measurements :
@@ -5142,12 +5253,28 @@ RC ANALYSE_LoadRef(ENGINE_CONTEXT *pEngineContext,INDEX indexFenoColumn)
   if (((Sref=pTabFeno->Sref=(double *)MEMORY_AllocDVector(__func__,"Sref",0,n_wavel-1))==NULL) ||
       ((SrefEtalon=pTabFeno->SrefEtalon=(double *)MEMORY_AllocDVector(__func__,"SrefEtalon",0,n_wavel))==NULL) ||
 
-      (is_satellite(pEngineContext->project.instrumental.readOutFormat)
-        &&
+      (((pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_GDP_ASCII) ||
+        (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_GDP_BIN) ||
+        (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_OMI) ||
+        (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_TROPOMI)
+        ) &&
        ((pTabFeno->SrefSigma=(double *)MEMORY_AllocDVector(__func__,"SrefSigma",0,n_wavel))==NULL)) ||
 
       ((lambdaRef=(double *)MEMORY_AllocDVector(__func__,"lambdaRef",0,n_wavel))==NULL) ||
-      ((lambdaRefEtalon=(double *)MEMORY_AllocDVector(__func__,"lambdaRefEtalon",0,n_wavel))==NULL) )
+      ((lambdaRefEtalon=(double *)MEMORY_AllocDVector(__func__,"lambdaRefEtalon",0,n_wavel))==NULL) ||
+
+      ((pTabFeno->refSpectrumSelectionMode==ANLYS_REF_SELECTION_MODE_AUTOMATIC) &&
+       ((pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_GDP_ASCII) ||
+        (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_GDP_BIN) ||
+        (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_SCIA_PDS) ||
+        (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_GOME2) ||
+        (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_OMI) ||
+        (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_TROPOMI)
+        ) &&
+       (((pTabFeno->SrefN=(double *)MEMORY_AllocDVector(__func__,"SrefN",0,n_wavel-1))==NULL) ||
+        ((pTabFeno->SrefS=(double *)MEMORY_AllocDVector(__func__,"SrefS",0,n_wavel-1))==NULL) ||
+        ((pTabFeno->LambdaN=(double *)MEMORY_AllocDVector(__func__,"LambdaN",0,n_wavel-1))==NULL) ||
+        ((pTabFeno->LambdaS=(double *)MEMORY_AllocDVector(__func__,"LambdaS",0,n_wavel-1))==NULL))))
 
    rc=ERROR_ID_ALLOC;
 
@@ -5193,9 +5320,8 @@ RC ANALYSE_LoadRef(ENGINE_CONTEXT *pEngineContext,INDEX indexFenoColumn)
           pEngineContext->project.instrumental.use_row[indexFenoColumn] = false;
         }
         break;
-
       default:
-        rc=AnalyseLoadVector("ANALYSE_LoadRef (SrefEtalon) ",pTabFeno->ref1,lambdaRefEtalon,SrefEtalon,n_wavel);
+        rc=AnalyseLoadVector(pTabFeno->ref1,lambdaRefEtalon,SrefEtalon,n_wavel,1,NULL);
         break;
       }
 
@@ -5225,7 +5351,7 @@ RC ANALYSE_LoadRef(ENGINE_CONTEXT *pEngineContext,INDEX indexFenoColumn)
          (((ptr=strrchr(pTabFeno->ref2,'.'))!=NULL) &&
           (strlen(ptr)==4) && !strcasecmp(ptr,".ref"))) &&
 
-        !(rc=AnalyseLoadVector("ANALYSE_LoadRef (Sref) ",pTabFeno->ref2,lambdaRef,Sref,n_wavel)) &&
+        !(rc=AnalyseLoadVector(pTabFeno->ref2,lambdaRef,Sref,n_wavel,1,NULL)) &&
         !(rc=THRD_SpectrumCorrection(pEngineContext,Sref,n_wavel)) &&
         !(rc=VECTOR_NormalizeVector(Sref-1,n_wavel,&pTabFeno->refNormFact,"ANALYSE_LoadRef (Sref) ")))
      {
@@ -5496,12 +5622,17 @@ void ANALYSE_Free(void)
 //               between Ref2 and Ref1;
 //               so this function is called after ANALYSE_Spectrum.
 // -----------------------------------------------------------------------------
-RC ANALYSE_UsampBuild(int analysisFlag,int gomeFlag,int indexFenoColumn)
+
+#if defined(__BC32_) && __BC32_
+#pragma argsused
+#endif
+RC ANALYSE_UsampBuild(int analysisFlag,int gomeFlag)
 {
   // Declarations
 
   MATRIX_OBJECT khrConvoluted,slitMatrix[NSFP];
   INDEX indexFeno,i,indexPixMin,indexPixMax,j;
+  int indexFenoColumn;
   double slitParam[NSFP],*lambda,*lambda2,lambda0,x0;
   FENO *pTabFeno;
   RC rc;
@@ -5520,6 +5651,7 @@ RC ANALYSE_UsampBuild(int analysisFlag,int gomeFlag,int indexFenoColumn)
 
   rc=ERROR_ID_NO;
 
+  indexFenoColumn=0;                                                            // later, use the second dimension of TabFeno (and add a second dimension to undersampling buffers)
   const int n_wavel = NDET[indexFenoColumn];
 
   // Buffer allocation
@@ -5652,7 +5784,7 @@ RC ANALYSE_UsampBuild(int analysisFlag,int gomeFlag,int indexFenoColumn)
 
          if (!(rc=SPLINE_Vector(khrConvoluted.matrix[0],khrConvoluted.matrix[1],khrConvoluted.deriv2[1],khrConvoluted.nl,
                                 &lambda[indexPixMin],&ANALYSE_usampBuffers.kuruczInterpolated[indexFeno][indexPixMin],(indexPixMax-indexPixMin+1),
-                                pAnalysisOptions->interpol)))
+                                pAnalysisOptions->interpol,__func__)))
 
           rc=SPLINE_Deriv2(&lambda[indexPixMin],&ANALYSE_usampBuffers.kuruczInterpolated[indexFeno][indexPixMin],
                            &ANALYSE_usampBuffers.kuruczInterpolated2[indexFeno][indexPixMin],(indexPixMax-indexPixMin+1),"ANALYSE_UsampBuild (3) ");
@@ -5800,6 +5932,10 @@ RC ANALYSE_UsampGlobalAlloc(double lambdaMin,double lambdaMax,int size)
 // RETURN        ERROR_ID_ALLOC if the allocation of a buffer failed;
 //               ERROR_ID_NO on success
 // -----------------------------------------------------------------------------
+
+#if defined(__BC32_) && __BC32_
+#pragma argsused
+#endif
 RC ANALYSE_UsampLocalAlloc(int gomeFlag)
 {
   // Declarations
@@ -5813,13 +5949,10 @@ RC ANALYSE_UsampLocalAlloc(int gomeFlag)
 
   rc=ERROR_ID_NO;
 
-  // for (indexFenoColumn=0;(indexFenoColumn<ANALYSE_swathSize) && !rc;indexFenoColumn++)
-
-  indexFenoColumn=0;  // per row, the configuration of the analysis shouldn't change   // TO DO LATER
-
+  for (indexFenoColumn=0;(indexFenoColumn<ANALYSE_swathSize) && !rc;indexFenoColumn++)
    for (indexFeno=0;(indexFeno<NFeno) && !rc;indexFeno++)
     {
-     pTabFeno=&TabFeno[indexFenoColumn][indexFeno];
+     pTabFeno=&TabFeno[0][indexFeno];
 
      if (!pTabFeno->hidden && pTabFeno->useUsamp && (pTabFeno->gomeRefFlag==gomeFlag))
       {

@@ -114,7 +114,7 @@ char     THRD_asciiFile[MAX_ITEM_TEXT_LEN],*THRD_asciiPtr;        // ascii file 
 void *    THRD_hEvents[THREAD_EVENT_MAX];      // list of events
 unsigned int      THRD_id=THREAD_TYPE_NONE;            // thread identification number
 double    THRD_localNoon;                      // local noon
-double    THRD_localShift=(double)0.;
+int       THRD_localShift;
 unsigned long     THRD_delay;
 int       THRD_correction;
 int       THRD_browseType;

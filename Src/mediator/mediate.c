@@ -77,7 +77,9 @@ int mediateRequestDisplaySpecInfo(void *engineContext,int page,void *responseHan
 
    if (strlen(pInstrumental->instrFunction))
     {
-     if (pInstrumental->readOutFormat!=PRJCT_INSTR_FORMAT_MFC)
+     if (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_PDAEGG_ULB)
+      mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Dark Current","%s",pInstrumental->instrFunction);
+     else if (pInstrumental->readOutFormat!=PRJCT_INSTR_FORMAT_MFC)
       mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Transmission file","%s",pInstrumental->instrFunction);
      else if (((pInstrumental->mfc.mfcMaskSpec!=0) && ((unsigned int)MFC_header.ty==pInstrumental->mfc.mfcMaskSpec)) ||
               ((pInstrumental->mfc.mfcMaskSpec==0) &&
@@ -123,6 +125,8 @@ int mediateRequestDisplaySpecInfo(void *engineContext,int page,void *responseHan
 
   if (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_GOME2)
    mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Date and Time","%02d/%02d/%d %02d:%02d:%02d.%06d",pDay->da_day,pDay->da_mon,pDay->da_year,pTime->ti_hour,pTime->ti_min,pTime->ti_sec,pRecord->present_datetime.microseconds);
+  else if (((pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_BIRA_AIRBORNE) || (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_BIRA_MOBILE)) && pRecord->present_datetime.millis)
+   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Date and Time","%02d/%02d/%d %02d:%02d:%02d.%03d",pDay->da_day,pDay->da_mon,pDay->da_year,pTime->ti_hour,pTime->ti_min,pTime->ti_sec,pRecord->present_datetime.millis);
   else if (pRecord->present_datetime.millis>0)
    mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Date and Time","%02d/%02d/%d %02d:%02d:%02d.%03d",pDay->da_day,pDay->da_mon,pDay->da_year,pTime->ti_hour,pTime->ti_min,pTime->ti_sec,pRecord->present_datetime.millis);
   else
@@ -159,24 +163,28 @@ int mediateRequestDisplaySpecInfo(void *engineContext,int page,void *responseHan
       mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"End time","%02d:%02d:%02d.%03d",pdateTime->thetime.ti_hour,pdateTime->thetime.ti_min,pdateTime->thetime.ti_sec,pdateTime->millis);
    }
 
-  if (ANALYSE_swathSize>1)
+  if (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_SCIA_PDS)
+    mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Record","%d/%d",pEngineContext->indexRecord,pEngineContext->recordNumber);
+  else if (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_OMI ||
+           pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_TROPOMI ||
+           pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_APEX)
     {
       if (pInstrumental->averageFlag)
         mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Record","%d/%d (%d spectra averaged)",
-                                pEngineContext->indexRecord,pEngineContext->recordNumber,pEngineContext->n_alongtrack);
+                                pEngineContext->indexRecord,pEngineContext->recordNumber,pRecord->n_alongtrack);
       else
        mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Record","%d/%d (measurement %d/%d, row %d/%d)",
                                pEngineContext->indexRecord,pEngineContext->recordNumber,
-                               1+pRecord->i_alongtrack,pEngineContext->n_alongtrack,
-                               1+pRecord->i_crosstrack,pEngineContext->n_crosstrack);
+                               1+pRecord->i_alongtrack,pRecord->n_alongtrack,
+                               1+pRecord->i_crosstrack,pRecord->n_crosstrack);
+
+      if (pSpectra->fieldsFlag[PRJCT_RESULTS_INDEX_ALONGTRACK])
+       mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Along-track index","%d",pRecord->i_alongtrack);
+      if (pSpectra->fieldsFlag[PRJCT_RESULTS_INDEX_CROSSTRACK])
+       mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Cross-track index","%d",pRecord->i_crosstrack);
     }
   else
    mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Record","%d/%d",pEngineContext->indexRecord,pEngineContext->recordNumber);
-
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_INDEX_ALONGTRACK])
-   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Along-track index","%d",pRecord->i_alongtrack);
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_INDEX_CROSSTRACK])
-   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Cross-track index","%d",pRecord->i_crosstrack);
 
   if (strlen(pRecord->Nom) && (pSpectra->fieldsFlag[PRJCT_RESULTS_NAME]))
    mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Record name","%s",pRecord->Nom);
@@ -262,8 +270,12 @@ int mediateRequestDisplaySpecInfo(void *engineContext,int page,void *responseHan
      }
    }
 
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_MEASTYPE] && is_maxdoas(pInstrumental->readOutFormat))
-   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Measurement type","%s",MAXDOAS_measureTypes[pRecord->maxdoas.measurementType]);   // TEST FORMAT ASCII
+  if (pSpectra->fieldsFlag[PRJCT_RESULTS_MEASTYPE] && (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_CCD_EEV))
+   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Measurement type","%s",MAXDOAS_measureTypes[pRecord->ccd.measureType]);
+  if (pSpectra->fieldsFlag[PRJCT_RESULTS_MEASTYPE] && (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_MFC_BIRA))
+   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Measurement type","%s",MAXDOAS_measureTypes[pRecord->mfcBira.measurementType]);
+  if (pSpectra->fieldsFlag[PRJCT_RESULTS_MEASTYPE] && (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_ASCII))
+   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Measurement type","%s",MAXDOAS_measureTypes[pRecord->asc.measurementType]);   // TEST FORMAT ASCII
 
   if (pSpectra->fieldsFlag[PRJCT_RESULTS_TDET])
    mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Detector temperature","%.3f",pRecord->TDet);
@@ -290,9 +302,9 @@ int mediateRequestDisplaySpecInfo(void *engineContext,int page,void *responseHan
    }
 
   if (pSpectra->fieldsFlag[PRJCT_RESULTS_CLOUD])
-   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Cloud fraction","%.3f",pRecord->satellite.cloud_fraction);
+   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Cloud fraction","%.3f",pRecord->cloudFraction);
   if (pSpectra->fieldsFlag[PRJCT_RESULTS_CLOUDTOPP])
-   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Cloud top pressure","%.3f",pRecord->satellite.cloud_top_pressure);
+   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Cloud top pressure","%.3f",pRecord->cloudTopPressure);
 
   if (pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_GOME2)
    {
@@ -331,28 +343,6 @@ int mediateRequestDisplaySpecInfo(void *engineContext,int page,void *responseHan
     if (pSpectra->fieldsFlag[PRJCT_RESULTS_UAV_HEADING])
      mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Heading","%.3f",(float)pRecord->uavBira.heading);
    }
-
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_SCANINDEX])
-   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Scan index","%d",pRecord->maxdoas.scanIndex);
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_ZENITH_BEFORE])
-   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Zenith before index","%d",1+pRecord->maxdoas.zenithBeforeIndex);   // Add one because record indexes are 1 based
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_ZENITH_AFTER])
-   mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Zenith after index","%d",1+pRecord->maxdoas.zenithAfterIndex);    // Add one because record indexes are 1 based
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_SAT_LON])
-     mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Satellite longitude","%g",pRecord->satellite.longitude);
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_SAT_LAT])
-     mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Satellite latitude","%g",pRecord->satellite.latitude);
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_SAT_HEIGHT])
-     mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Satellite height","%g",pRecord->satellite.altitude);
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_EARTH_RADIUS])
-     mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Earth radius","%g",pRecord->satellite.earth_radius);
-
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_SAT_SZA])
-     mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Satellite solar zenith angle","%g",pRecord->satellite.sza);
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_SAT_SAA])
-     mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Satellite solar azimuth angle","%g",pRecord->satellite.saa);
-  if (pSpectra->fieldsFlag[PRJCT_RESULTS_SAT_VZA])
-     mediateResponseCellInfo(page,indexLine++,indexColumn,responseHandle,"Satellite viewing zenith angle","%g",pRecord->satellite.vza);
 
   // Return
 
@@ -410,8 +400,8 @@ void mediateRequestPlotSpectra(ENGINE_CONTEXT *pEngineContext,void *responseHand
      const char* y_units;
      switch (pInstrumental->readOutFormat) {
        // satellite formats have calibrated radiances:
+     case PRJCT_INSTR_FORMAT_GDP_ASCII:
      case PRJCT_INSTR_FORMAT_GDP_BIN:
-     case PRJCT_INSTR_FORMAT_GOME1_NETCDF :
      case PRJCT_INSTR_FORMAT_SCIA_PDS:
      case PRJCT_INSTR_FORMAT_GOME2:
      case PRJCT_INSTR_FORMAT_OMI:
@@ -506,8 +496,7 @@ void mediateRequestPlotSpectra(ENGINE_CONTEXT *pEngineContext,void *responseHand
      // satellite formats have an irradiance spectrum
      if (pBuffers->irrad!=NULL
          && ( !(pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_OMI || // for OMI and Tropomi, irradiance is stored in separate file, which is only read during analysis
-                pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_TROPOMI ||
-                pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF)
+                pInstrumental->readOutFormat==PRJCT_INSTR_FORMAT_TROPOMI)
               || THRD_id==THREAD_TYPE_ANALYSIS) ) {
 
        mediateAllocateAndSetPlotData(&spectrumData, "Irradiance spectrum", pBuffers->lambda_irrad, pBuffers->irrad, n_wavel, Line);
@@ -605,7 +594,7 @@ void setMediateProjectDisplay(PRJCT_SPECTRA *pEngineSpectra,const mediate_projec
    pEngineSpectra->displayCalibFlag=pMediateSpectra->requireCalib;
    pEngineSpectra->displayFitFlag=pMediateSpectra->requireFits;
 
-   memset(pEngineSpectra->fieldsFlag,0,PRJCT_RESULTS_MAX*sizeof(int));
+   memset(pEngineSpectra->fieldsFlag,0,PRJCT_RESULTS_MAX);
 
    for (i=0;i<pMediateSpectra->selection.nSelected;i++)
     pEngineSpectra->fieldsFlag[(int)pMediateSpectra->selection.selected[i]]=(char)1;
@@ -1035,6 +1024,18 @@ void setMediateProjectInstrumental(PRJCT_INSTRUMENTAL *pEngineInstrumental,const
 
       break;
       // ----------------------------------------------------------------------------
+    case PRJCT_INSTR_FORMAT_GDP_ASCII :                                                               // GOME ASCII format
+
+      NDET[0]=1024;                                                                                     // Could be reduced by Set function
+
+      strcpy(pEngineInstrumental->calibrationFile,pMediateInstrumental->gdpascii.calibrationFile);     // calibration file
+      strcpy(pEngineInstrumental->instrFunction,pMediateInstrumental->gdpascii.transmissionFunctionFile);     // instrumental function file
+
+      pEngineInstrumental->gome.bandType=pMediateInstrumental->gdpascii.bandType;
+      pEngineInstrumental->gome.pixelType=pMediateInstrumental->gdpascii.pixelType-1;
+
+      break;
+      // ----------------------------------------------------------------------------
     case PRJCT_INSTR_FORMAT_GDP_BIN :                                                               // GOME WinDOAS BINARY format
 
       NDET[0]=1024;                                                                                     // Could be reduced by Set function
@@ -1044,21 +1045,6 @@ void setMediateProjectInstrumental(PRJCT_INSTRUMENTAL *pEngineInstrumental,const
 
       pEngineInstrumental->gome.bandType=pMediateInstrumental->gdpbin.bandType;
       pEngineInstrumental->gome.pixelType=pMediateInstrumental->gdpbin.pixelType-1;
-
-      break;
-      // ---------------------------------------------------------------------------
-    case PRJCT_INSTR_FORMAT_GOME1_NETCDF :                                                               // GOME ERS2 netCDF format
-
-      for(unsigned int i=0; i<MAX_SWATHSIZE; ++i) {
-        NDET[i]=1024;
-        pEngineInstrumental->use_row[i]=false;
-      }                                                                                    // Could be reduced by Set function
-
-      strcpy(pEngineInstrumental->calibrationFile,pMediateInstrumental->gdpnetcdf.calibrationFile);     // calibration file
-      strcpy(pEngineInstrumental->instrFunction,pMediateInstrumental->gdpnetcdf.transmissionFunctionFile);     // instrumental function file
-
-      pEngineInstrumental->gomenetcdf.bandType=pMediateInstrumental->gdpnetcdf.bandType;
-      pEngineInstrumental->gomenetcdf.pixelType=pMediateInstrumental->gdpnetcdf.pixelType;
 
       break;
       // ---------------------------------------------------------------------------
@@ -1199,34 +1185,9 @@ void setMediateProjectInstrumental(PRJCT_INSTRUMENTAL *pEngineInstrumental,const
       }
 
       pEngineInstrumental->tropomi.spectralBand = pMediateInstrumental->tropomi.spectralBand;
-      strcpy(pEngineInstrumental->tropomi.reference_orbit_dir, pMediateInstrumental->tropomi.reference_orbit_dir);
 
       strcpy(pEngineInstrumental->calibrationFile,pMediateInstrumental->tropomi.calibrationFile);     // calibration file
       strcpy(pEngineInstrumental->instrFunction,pMediateInstrumental->tropomi.instrFunctionFile);     // instrumental function file
-
-      OMI_TrackSelection(pMediateInstrumental->tropomi.trackSelection,pEngineInstrumental->use_row);
-
-      break;
-      // ----------------------------------------------------------------------------
-    case PRJCT_INSTR_FORMAT_OMPS:
-
-      for (int i=0; i<MAX_SWATHSIZE; ++i) {
-        NDET[i]=512;
-      }
-
-      break;
-      // ----------------------------------------------------------------------------
-    case PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF:
-
-      NDET[0]=pMediateInstrumental->frm4doas.detectorSize;
-      pEngineInstrumental->user=pMediateInstrumental->frm4doas.spectralType;
-
-      pEngineInstrumental->offsetFlag=pMediateInstrumental->frm4doas.straylight;
-      pEngineInstrumental->lambdaMin=pMediateInstrumental->frm4doas.lambdaMin;
-      pEngineInstrumental->lambdaMax=pMediateInstrumental->frm4doas.lambdaMax;
-
-      strcpy(pEngineInstrumental->calibrationFile,pMediateInstrumental->frm4doas.calibrationFile); // calibration file
-      strcpy(pEngineInstrumental->instrFunction,pMediateInstrumental->frm4doas.transmissionFunctionFile); // instrumental function file
 
       break;
     }
@@ -1277,9 +1238,9 @@ void setMediateProjectOutput(PRJCT_RESULTS *pEngineOutput,const mediate_project_
    pEngineOutput->successFlag=pMediateOutput->successFlag;
 
    if (!(pEngineOutput->fieldsNumber=pMediateOutput->selection.nSelected))
-    memset(pEngineOutput->fieldsFlag,0,PRJCT_RESULTS_MAX*sizeof(int));
+    memset(pEngineOutput->fieldsFlag,0,PRJCT_RESULTS_MAX);
    else
-    memcpy(pEngineOutput->fieldsFlag,pMediateOutput->selection.selected,pEngineOutput->fieldsNumber*sizeof(int));
+    memcpy(pEngineOutput->fieldsFlag,pMediateOutput->selection.selected,pEngineOutput->fieldsNumber);
  }
 
 void setMediateProjectExport(PRJCT_EXPORT *pEngineExport,const mediate_project_export_t *pMediateExport)
@@ -1290,9 +1251,9 @@ void setMediateProjectExport(PRJCT_EXPORT *pEngineExport,const mediate_project_e
  	pEngineExport->directoryFlag=pMediateExport->directoryFlag;
 
   if (!(pEngineExport->fieldsNumber=pMediateExport->selection.nSelected))
-   memset(pEngineExport->fieldsFlag,0,PRJCT_RESULTS_MAX*sizeof(int));
+   memset(pEngineExport->fieldsFlag,0,PRJCT_RESULTS_MAX);
   else
-   memcpy(pEngineExport->fieldsFlag,pMediateExport->selection.selected,pEngineExport->fieldsNumber*sizeof(int));
+   memcpy(pEngineExport->fieldsFlag,pMediateExport->selection.selected,pEngineExport->fieldsNumber);
  }
 
 // -----------------------------------------------------------------------------
@@ -1346,23 +1307,6 @@ int mediateRequestSetProject(void *engineContext,
    setMediateProjectSlit(&pEngineProject->slit,&project->slit);
    setMediateProjectOutput(&pEngineProject->asciiResults,&project->output);
    setMediateProjectExport(&pEngineProject->exportSpectra,&project->export_spectra);
-
-   if (is_maxdoas(pEngineProject->instrumental.readOutFormat))
-    {
-     int fieldsFlag[PRJCT_RESULTS_MAX];
-
-     memset(fieldsFlag,0,PRJCT_RESULTS_MAX*sizeof(int));
-
-     // fieldsFlag not processed the same time in display page and output/export ??? -> to check later
-
-     if (operatingMode==THREAD_TYPE_ANALYSIS)
-      for (int i=0;i<project->output.selection.nSelected;i++)
-       fieldsFlag[project->output.selection.selected[i]]=1;
-     else if (operatingMode==THREAD_TYPE_EXPORT)
-      for (int i=0;i<project->export_spectra.selection.nSelected;i++)
-       fieldsFlag[project->export_spectra.selection.selected[i]]=1;
-    }
-
 
    // Allocate buffers requested by the project
 
@@ -1646,20 +1590,8 @@ int mediateRequestSetAnalysisWindows(void *engineContext,
    case PRJCT_INSTR_FORMAT_OMI:
      ANALYSE_swathSize = 60;
      break;
-   case PRJCT_INSTR_FORMAT_GOME1_NETCDF:
-     ANALYSE_swathSize = 4;   // the number of pixel types
-     for (int i =0; i< ANALYSE_swathSize; ++i)
-       pInstrumental->use_row[i] = true;
-
-     break;
-
    case PRJCT_INSTR_FORMAT_TROPOMI:
      rc = tropomi_init(analysisWindows[0].refOneFile,pEngineContext);
-     break;
-   case PRJCT_INSTR_FORMAT_OMPS:
-     ANALYSE_swathSize = 36;
-     for (int i =0; i< ANALYSE_swathSize; ++i)
-       pInstrumental->use_row[i] = true;
      break;
    case PRJCT_INSTR_FORMAT_APEX:
      rc = apex_init(analysisWindows[0].refOneFile,pEngineContext);
@@ -1712,12 +1644,9 @@ int mediateRequestSetAnalysisWindows(void *engineContext,
            pTabFeno->resolFwhm=pAnalysisWindows->resolFwhm;
 
            if ((pTabFeno->refSpectrumSelectionMode=pAnalysisWindows->refSpectrumSelection)==ANLYS_REF_SELECTION_MODE_AUTOMATIC) {
-               if (((pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_ASCII) && is_maxdoas(pEngineContext->project.instrumental.readOutFormat)) ||
-                   ((pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_ASCII) && (pEngineContext->project.instrumental.ascii.elevSaveFlag || (pEngineContext->project.instrumental.ascii.format==PRJCT_INSTR_ASCII_FORMAT_COLUMN_EXTENDED)))) {
-
-             //if ((pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_CCD_EEV) || (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_MFC) || (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_MFC_STD) || (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_MFC_BIRA) ||
-             //    (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_BIRA_MOBILE) || (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_BIRA_AIRBORNE) || (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_FRM4DOAS_NETCDF) ||
-             //   ((pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_ASCII) && (pEngineContext->project.instrumental.ascii.elevSaveFlag || (pEngineContext->project.instrumental.ascii.format==PRJCT_INSTR_ASCII_FORMAT_COLUMN_EXTENDED)))) {
+             if ((pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_CCD_EEV) || (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_MFC) || (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_MFC_STD) || (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_MFC_BIRA) ||
+                 (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_BIRA_MOBILE) || (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_BIRA_AIRBORNE) ||
+                ((pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_ASCII) && (pEngineContext->project.instrumental.ascii.elevSaveFlag || (pEngineContext->project.instrumental.ascii.format==PRJCT_INSTR_ASCII_FORMAT_COLUMN_EXTENDED)))) {
 
                if ((pTabFeno->refMaxdoasSelectionMode=pAnalysisWindows->refMaxdoasSelection)==ANLYS_MAXDOAS_REF_SCAN)
                  pEngineContext->analysisRef.refScan++;
@@ -1737,6 +1666,21 @@ int mediateRequestSetAnalysisWindows(void *engineContext,
 
              pTabFeno->cloudFractionMin=pAnalysisWindows->cloudFractionMin;
              pTabFeno->cloudFractionMax=pAnalysisWindows->cloudFractionMax;
+
+             pTabFeno->gomePixelType[0]=pTabFeno->gomePixelType[1]=pTabFeno->gomePixelType[2]=pTabFeno->gomePixelType[3]=0;
+
+             // GOME Pixel type : probably will be replaced later by a maximum value for LOS angle
+
+             if ((pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_GDP_ASCII) ||
+                 (pEngineContext->project.instrumental.readOutFormat==PRJCT_INSTR_FORMAT_GDP_BIN)) {
+
+               pTabFeno->gomePixelType[0]=pAnalysisWindows->pixelTypeEast;
+               pTabFeno->gomePixelType[1]=pAnalysisWindows->pixelTypeCenter;
+               pTabFeno->gomePixelType[2]=pAnalysisWindows->pixelTypeWest;
+               pTabFeno->gomePixelType[3]=pAnalysisWindows->pixelTypeBackscan;
+             }
+
+             pTabFeno->nspectra=pAnalysisWindows->refNs;
 
              pEngineContext->analysisRef.refAuto++;
 
@@ -1829,7 +1773,6 @@ int mediateRequestSetAnalysisWindows(void *engineContext,
              useUsamp+=pTabFeno->useUsamp;
              xsToConvolute+=pTabFeno->xsToConvolute;
              xsToConvoluteI0+=pTabFeno->xsToConvoluteI0;
-             pTabFeno->lambda0=(double)(pAnalysisWindows->fitMinWavelength+pAnalysisWindows->fitMaxWavelength)*0.5;
 
              if (pTabFeno->gomeRefFlag || pEngineContext->refFlag) {
                memcpy(pTabFeno->Lambda,pTabFeno->LambdaRef,sizeof(double)*n_wavel);
@@ -1853,9 +1796,6 @@ int mediateRequestSetAnalysisWindows(void *engineContext,
      }  // for (indexFeno=0;(indexFeno<numberOfWindows+1) && !rc;indexFeno++)
    } // for (indexFenoColumn=0;(indexFenoColumn<ANALYSE_swathSize) && !rc;indexFenoColumn++)
 
-   if (rc)
-     goto handle_errors;
-
    int max_ndet = 0;
    for (int i=0; i<ANALYSE_swathSize; ++i) {
      if (NDET[i] > max_ndet)
@@ -1866,6 +1806,9 @@ int mediateRequestSetAnalysisWindows(void *engineContext,
      lambdaMin=pEngineContext->buffers.lambda[0];
      lambdaMax=pEngineContext->buffers.lambda[max_ndet-1];
    }
+
+   if (rc)
+     goto handle_errors;
 
    // load slit function from project properties -> slit page?
    // calibration procedure with FWHM fit -> Kurucz (and xs) are convolved with the fitted slit function
@@ -1919,7 +1862,6 @@ int mediateRequestSetAnalysisWindows(void *engineContext,
        // Apply the calibration procedure on the reference spectrum if the wavelength calibration is different from None at least for one spectral window
        if ((THRD_id==THREAD_TYPE_KURUCZ) || useKurucz) {
          rc=KURUCZ_Alloc(&pEngineContext->project,pEngineContext->buffers.lambda,indexKurucz,lambdaMin,lambdaMax,indexFenoColumn, &hr_solar_temp);
-
          if (!rc && useKurucz) {
            rc=KURUCZ_Reference(pEngineContext->buffers.instrFunction,0,saveFlag,1,responseHandle,indexFenoColumn);
          }
@@ -1947,7 +1889,7 @@ int mediateRequestSetAnalysisWindows(void *engineContext,
        (pEngineContext->project.instrumental.readOutFormat!=PRJCT_INSTR_FORMAT_OMI) && useUsamp &&
        !(rc=ANALYSE_UsampGlobalAlloc(lambdaMin,lambdaMax,max_ndet)) &&
        !(rc=ANALYSE_UsampLocalAlloc(1)))
-    rc=ANALYSE_UsampBuild(0,1,0);   // !!! ACCOUNT FOR UNDERSAMPLING ???
+    rc=ANALYSE_UsampBuild(0,1);
 
  handle_errors:
 
@@ -2164,6 +2106,19 @@ int mediateRequestNextMatchingSpectrum(ENGINE_CONTEXT *pEngineContext,void *resp
        if (geoFlag) // this record matches - exit the search loop
         break;
 
+
+         //if (((fabs(pProject->spectra.SZAMin-pProject->spectra.SZAMax)<(double)1.e-4) ||
+         //     ((pRecord->Zm>=pProject->spectra.SZAMin) && (pRecord->Zm<=pProject->spectra.SZAMax))) &&
+         //    ((fabs(pProject->spectra.SZADelta)<(double)1.e-4) ||
+         //     (fabs(pRecord->Zm-pRecord->oldZm)>pProject->spectra.SZADelta))) {
+         //  // this record matches - exit the search loop
+         //  break;
+         // }
+
+
+       // }
+
+
      }
 
      if (outputFlag && (THRD_id!=THREAD_TYPE_EXPORT)) {   // analysis : bad record but save all spectra
@@ -2264,6 +2219,19 @@ int mediateRequestNextMatchingBrowseSpectrum(void *engineContext,
    return rec;
  }
 
+int mediateRequestEndBrowseSpectra(void *engineContext,
+				   void *responseHandle)
+ {
+   RC rc;
+
+   if ((rc=EngineRequestEndBrowseSpectra((ENGINE_CONTEXT *)engineContext))!=0)
+    ERROR_DisplayMessage(responseHandle);
+
+   // Close open files and release allocated buffers to reset the engine context
+
+   return 0;
+ }
+
 int mediateRequestBeginExportSpectra(void *engineContext,
 				     const char *spectraFileName,
 				     void *responseHandle)
@@ -2293,6 +2261,19 @@ int mediateRequestBeginExportSpectra(void *engineContext,
 // should be posted with
 //    mediateResponseErrorMessage(functionName, messageString, errorLevel, responseHandle);
 
+int mediateRequestEndExportSpectra(void *engineContext,
+				   void *responseHandle)
+ {
+   RC rc;
+
+   if ((rc=EngineRequestEndBrowseSpectra((ENGINE_CONTEXT *)engineContext))!=0)
+    ERROR_DisplayMessage(responseHandle);
+
+   // Close open files and release allocated buffers to reset the engine context
+
+   return 0;
+ }
+
 int mediateRequestBeginAnalyseSpectra(void *engineContext,
                                       const char *configFileName,
 				      const char *spectraFileName,
@@ -2319,7 +2300,7 @@ int mediateRequestNextMatchingAnalyseSpectrum(void *engineContext,
    // Declarations
 
    ENGINE_CONTEXT *pEngineContext = (ENGINE_CONTEXT *)engineContext;
-   RC rcOutput = ERROR_ID_NO;
+   RC rc = ERROR_ID_NO;
 
    int rec = mediateRequestNextMatchingSpectrum(pEngineContext,responseHandle);
 
@@ -2340,26 +2321,17 @@ int mediateRequestNextMatchingAnalyseSpectrum(void *engineContext,
     {
      mediateRequestPlotSpectra(pEngineContext,responseHandle);
 
-     if (!pEngineContext->analysisRef.refAuto || pEngineContext->satelliteFlag || ((pEngineContext->recordInfo.rc=EngineNewRef(pEngineContext,responseHandle))==ERROR_ID_NO))
-      pEngineContext->recordInfo.rc=ANALYSE_Spectrum(pEngineContext,responseHandle);
+     if (!pEngineContext->analysisRef.refAuto || pEngineContext->satelliteFlag || ((rc=EngineNewRef(pEngineContext,responseHandle))==ERROR_ID_NO))
+      rc=ANALYSE_Spectrum(pEngineContext,responseHandle);
 
-    if ((pEngineContext->mfcDoasisFlag || (pEngineContext->lastSavedRecord!=pEngineContext->indexRecord)) &&
-        (   ((THRD_id==THREAD_TYPE_ANALYSIS) && pEngineContext->project.asciiResults.analysisFlag && (!pEngineContext->project.asciiResults.successFlag /* || nrc */))
-            || ((THRD_id==THREAD_TYPE_KURUCZ) && pEngineContext->project.asciiResults.calibFlag) ) )
-
-      pEngineContext->recordInfo.rc=OUTPUT_SaveResults(pEngineContext,pEngineContext->recordInfo.i_crosstrack);
-
-//    if (!rc)
-//      rc=rcOutput;
-
-     if (pEngineContext->recordInfo.rc!=ERROR_ID_NO)
+     if (rc!=ERROR_ID_NO)
       ERROR_DisplayMessage(responseHandle);
     }
 
    // NB if the function returns -1, the problem is that it is not possible to process
    // next records.
 
-   return ((pEngineContext->recordInfo.rc != ERROR_ID_REF_ALIGNMENT) || pEngineContext->analysisRef.refScan) ? rec : -1;
+   return ((rc != ERROR_ID_REF_ALIGNMENT) || pEngineContext->analysisRef.refScan) ? rec : -1;
  }
 
 int mediateRequestPrevMatchingAnalyseSpectrum(void *engineContext,
@@ -2367,6 +2339,24 @@ int mediateRequestPrevMatchingAnalyseSpectrum(void *engineContext,
  {
    return 0;
  }
+
+int mediateRequestEndAnalyseSpectra(void *engineContext,
+				    void *responseHandle)
+ {
+   // Declarations
+
+   RC rc;
+
+   // Close open files and release allocated buffers to reset the engine context
+
+   if ((rc=EngineRequestEndBrowseSpectra((ENGINE_CONTEXT *)engineContext))!=0)
+    ERROR_DisplayMessage(responseHandle);
+
+   // Return
+
+   return 0;
+ }
+
 
 int mediateRequestBeginCalibrateSpectra(void *engineContext,
 					const char *spectraFileName,
@@ -2406,6 +2396,21 @@ int mediateRequestNextMatchingCalibrateSpectrum(void *engineContext,
 int mediateRequestPrevMatchingCalibrateSpectrum(void *engineContext,
 						void *responseHandle)
  {
+   return 0;
+ }
+
+int mediateRequestEndCalibrateSpectra(void *engineContext,
+				      void *responseHandle)
+ {
+   RC rc;
+
+   // Close open files and release allocated buffers to reset the engine context
+
+   if ((rc=EngineRequestEndBrowseSpectra((ENGINE_CONTEXT *)engineContext))!=0)
+    ERROR_DisplayMessage(responseHandle);
+
+   // Return
+
    return 0;
  }
 

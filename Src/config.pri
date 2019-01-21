@@ -260,6 +260,7 @@ unix {
   QMAKE_LIBDIR += $$INSTALL_PREFIX/hdf5-1.10.1/hdf5/lib
   QMAKE_LIBDIR += /usr/local/qwt-6.1.3/lib/
   QMAKE_LIBDIR += /usr/lib/
+  QMAKE_LIBDIR += /usr/lib/x86_64-linux-gnu/
 }
 
 asan { # use 'CONFIG+=asan' to build with adress sanitizer support
